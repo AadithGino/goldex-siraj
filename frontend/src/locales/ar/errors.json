@@ -1,0 +1,38 @@
+{
+  "auth": {
+    "sendOtpFailed": "فشل إرسال OTP",
+    "invalidOtp": "OTP غير صالح"
+  },
+  "checkout": {
+    "saveAddressFailed": "تعذر حفظ العنوان",
+    "selectAddress": "يرجى اختيار عنوان التوصيل",
+    "placeOrderFailed": "تعذر تقديم الطلب",
+    "invalidCoupon": "قسيمة غير صالحة",
+    "validateCouponFailed": "تعذر التحقق من القسيمة"
+  },
+  "cart": {
+    "updateQtyFailed": "تعذر تحديث الكمية",
+    "removeItemFailed": "تعذر إزالة المنتج",
+    "updateVariantFailed": "تعذر تحديث المتغير",
+    "addToBagFailed": "تعذر الإضافة للسلة"
+  },
+  "wishlist": {
+    "updateFailed": "تعذر تحديث المفضلة"
+  },
+  "account": {
+    "updateProfileFailed": "تعذر تحديث الملف الشخصي",
+    "updateAddressFailed": "تعذر تحديث العنوان",
+    "removeAddressFailed": "تعذر حذف العنوان",
+    "signOutFailed": "تعذر تسجيل الخروج"
+  },
+  "orders": {
+    "submitReturnFailed": "تعذر تقديم الطلب"
+  },
+  "product": {
+    "submitReviewFailed": "تعذر إرسال المراجعة"
+  },
+  "scheme": {
+    "enrollmentFailed": "فشل التسجيل",
+    "paymentFailed": "فشل الدفع"
+  }
+}

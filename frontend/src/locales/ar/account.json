@@ -1,0 +1,40 @@
+{
+  "helloPrefix": "مرحباً",
+  "signOut": "تسجيل الخروج",
+  "walletBalance": "رصيد المحفظة",
+  "myOrders": "طلباتي",
+  "goldScheme": "خطة الذهب",
+  "wishlist": "المفضلة",
+  "tab": {
+    "profile": "الملف الشخصي",
+    "addresses": "العناوين",
+    "wallet": "المحفظة",
+    "scheme": "خطة الذهب"
+  },
+  "walletTitle": "المحفظة",
+  "profileDetails": "تفاصيل الملف الشخصي",
+  "phone": "الهاتف",
+  "fullName": "الاسم الكامل",
+  "emailOptional": "البريد الإلكتروني (اختياري)",
+  "emailPlaceholder": "you@example.com",
+  "savedAddresses": "العناوين المحفوظة",
+  "walletDesc": "تُضاف مدفوعات خطة الذهب هنا ويمكن استخدامها عند الدفع.",
+  "availableBalance": "الرصيد المتاح",
+  "noTransactions": "لا توجد معاملات بعد",
+  "noTransactionsDesc": "ستظهر أرصدة المحفظة من خطط الذهب المكتملة هنا.",
+  "walletTx": {
+    "schemePayout": "دفعة الخطة",
+    "schemePayoutDesc": "رصيد استحقاق خطة الذهب 11+1",
+    "purchase": "استُخدم للشراء",
+    "purchaseDesc": "طُبِّق عند الدفع",
+    "refund": "استرداد",
+    "refundDesc": "استرداد الطلب",
+    "adjustment": "تعديل",
+    "adjustmentDesc": "تعديل يدوي"
+  },
+  "wishlistEmptyTitle": "مفضلتك فارغة",
+  "wishlistEmptyDesc": "احفظ القطع التي تحبها وعد في أي وقت.",
+  "wishlistEyebrow": "محفوظ",
+  "wishlistTitle": "المفضلة",
+  "cmsNotFound": "الصفحة غير موجودة"
+}

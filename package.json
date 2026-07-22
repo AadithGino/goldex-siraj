@@ -1,0 +1,15 @@
+{
+  "name": "goldex-production",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "build": "npm --workspace frontend run build",
+    "test": "npm --workspace backend test",
+    "check": "npm --workspace backend run check && npm --workspace frontend run build",
+    "package:release": "node scripts/package-release.js"
+  }
+}

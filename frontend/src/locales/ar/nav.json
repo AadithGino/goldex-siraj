@@ -1,0 +1,21 @@
+{
+  "home": "الرئيسية",
+  "shopAll": "تسوق الكل",
+  "shop": "تسوق",
+  "wishlist": "المفضلة",
+  "cart": "السلة",
+  "account": "الحساب",
+  "scheme": "خطة الذهب",
+  "searchPlaceholder": "ابحث عن مجوهرات…",
+  "searchAria": "بحث",
+  "accountAria": "الحساب",
+  "cartAria": "السلة",
+  "menuAria": "القائمة",
+  "footer": {
+    "shopHeading": "تسوق",
+    "allJewellery": "جميع المجوهرات",
+    "goldScheme": "خطة الذهب",
+    "policiesHeading": "السياسات",
+    "contactHeading": "تواصل"
+  }
+}

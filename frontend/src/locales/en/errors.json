@@ -1,0 +1,38 @@
+{
+  "auth": {
+    "sendOtpFailed": "Failed to send OTP",
+    "invalidOtp": "Invalid OTP"
+  },
+  "checkout": {
+    "saveAddressFailed": "Could not save address",
+    "selectAddress": "Please select a delivery address",
+    "placeOrderFailed": "Could not place order",
+    "invalidCoupon": "Invalid coupon",
+    "validateCouponFailed": "Could not validate coupon"
+  },
+  "cart": {
+    "updateQtyFailed": "Could not update quantity",
+    "removeItemFailed": "Could not remove item",
+    "updateVariantFailed": "Could not update variant",
+    "addToBagFailed": "Could not add to bag"
+  },
+  "wishlist": {
+    "updateFailed": "Could not update wishlist"
+  },
+  "account": {
+    "updateProfileFailed": "Could not update profile",
+    "updateAddressFailed": "Could not update address",
+    "removeAddressFailed": "Could not remove address",
+    "signOutFailed": "Could not sign out"
+  },
+  "orders": {
+    "submitReturnFailed": "Could not submit request"
+  },
+  "product": {
+    "submitReviewFailed": "Could not submit review"
+  },
+  "scheme": {
+    "enrollmentFailed": "Enrollment failed",
+    "paymentFailed": "Payment failed"
+  }
+}

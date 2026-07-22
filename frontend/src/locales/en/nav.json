@@ -1,0 +1,21 @@
+{
+  "home": "Home",
+  "shopAll": "Shop All",
+  "shop": "Shop",
+  "wishlist": "Wishlist",
+  "cart": "Cart",
+  "account": "Account",
+  "scheme": "Scheme",
+  "searchPlaceholder": "Search jewellery…",
+  "searchAria": "Search",
+  "accountAria": "Account",
+  "cartAria": "Cart",
+  "menuAria": "Menu",
+  "footer": {
+    "shopHeading": "Shop",
+    "allJewellery": "All Jewellery",
+    "goldScheme": "Gold Scheme",
+    "policiesHeading": "Policies",
+    "contactHeading": "Contact"
+  }
+}

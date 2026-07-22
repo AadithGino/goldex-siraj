@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+/* ============================================================
+   GOLDEX THEME — UAE premium jewellery
+   Pure white surfaces (Josalukkas) + deep navy actions (Bluestone)
+   + restrained gold accents.
+   ============================================================ */
+
+:root {
+  /* Surfaces — pure white / near-white neutrals.
+     The app uses --ivory* tokens as backgrounds in ~50 places, so we
+     retune those tokens to white/grey instead of editing every component. */
+  --ivory: #ffffff;        /* page background */
+  --ivory-2: #ffffff;      /* cards / panels */
+  --ivory-3: #f5f6f8;      /* subtle grey fill (chips, hovers, thumbs) */
+
+  /* Brand */
+  --navy: #14213d;         /* primary action — deep Bluestone navy */
+  --navy-2: #0c1730;       /* navy hover / pressed */
+  --gold: #b8902f;         /* accent only */
+  --gold-2: #d4af5a;
+  --gold-3: #f3e3b3;
+
+  /* Text */
+  --ink: #16181d;          /* body text on white */
+  --muted: #6b7280;        /* secondary text — neutral grey */
+
+  /* Lines — clean neutral hairlines (not gold-tinted) */
+  --line: #e6e8ec;
+  --line-strong: #d6d9df;
+
+  --radius: 18px;
+  --mobile-nav-height: 3.5rem;
+  --storefront-header-height: 3.625rem;
+  --product-subnav-height: 2.5rem;
+}
+
+@theme {
+  --color-ivory: var(--ivory);
+  --color-ivory-2: var(--ivory-2);
+  --color-ivory-3: var(--ivory-3);
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-gold: var(--gold);
+  --color-gold-2: var(--gold-2);
+  --color-gold-3: var(--gold-3);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --font-display: "Cormorant Garamond", "Cinzel", serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #ffffff;       /* pure white page */
+  color: var(--ink);
+  font-family: var(--font-sans);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+[dir="rtl"] body {
+  font-family: "Noto Sans Arabic", var(--font-sans);
+}
+
+[dir="rtl"] h1,
+[dir="rtl"] h2,
+[dir="rtl"] h3,
+[dir="rtl"] h4 {
+  font-family: "Noto Sans Arabic", var(--font-display);
+}
+
+#root {
+  min-height: 100vh;
+  overflow-x: clip;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  color: var(--navy);
+  letter-spacing: 0.01em;
+  font-weight: 600;
+}
+
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button {
+    font-family: inherit;
+  }
+}
+
+/* Thin gold rule used as a premium divider accent */
+.gold-rule {
+  height: 2px;
+  width: 56px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-2));
+  border-radius: 999px;
+}
+
+/* Live gold-rate ticker bar (homepage) */
+.rate-ticker {
+  background: var(--navy);
+  color: #fff;
+  border-bottom: 1px solid var(--navy-2);
+}
+.rate-ticker .chip {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.rate-ticker-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 2px;
+}
+
+.rate-ticker-chips::-webkit-scrollbar {
+  display: none;
+}
+
+[dir='rtl'] .rate-ticker-chips {
+  justify-content: flex-start;
+}
+
+.product-quick-nav {
+  position: sticky;
+  top: var(--storefront-header-height);
+  z-index: 20;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+
+/* Product card — square cart control (overrides global rounded-full button) */
+.product-card-cart {
+  border-radius: 0 !important;
+  min-height: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-card-premium,
+  .product-card-premium * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

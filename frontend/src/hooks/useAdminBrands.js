@@ -1,0 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+export function useAdminBrands() { return useQuery({ queryKey: ['admin-brands'], queryFn: () => api.get('/admin/catalog/brands', { limit: 200 }) }) }
+export function useAdminBrandMutations() { const qc = useQueryClient(); const invalidate = () => ['admin-brands', 'brands', 'admin-products', 'products'].forEach((key) => qc.invalidateQueries({ queryKey: [key] })); const create = useMutation({ mutationFn: (body) => api.post('/admin/catalog/brands', body), onSuccess: invalidate }); const update = useMutation({ mutationFn: ({ id, ...body }) => api.patch(`/admin/catalog/brands/${id}`, body), onSuccess: invalidate }); const remove = useMutation({ mutationFn: (id) => api.delete(`/admin/catalog/brands/${id}`), onSuccess: invalidate }); return { create, update, remove } }

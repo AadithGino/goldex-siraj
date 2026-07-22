@@ -1,0 +1,40 @@
+{
+  "helloPrefix": "Hello",
+  "signOut": "Sign out",
+  "walletBalance": "Wallet balance",
+  "myOrders": "My orders",
+  "goldScheme": "Gold scheme",
+  "wishlist": "Wishlist",
+  "tab": {
+    "profile": "Profile",
+    "addresses": "Addresses",
+    "wallet": "Wallet",
+    "scheme": "Gold scheme"
+  },
+  "walletTitle": "Wallet",
+  "profileDetails": "Profile details",
+  "phone": "Phone",
+  "fullName": "Full name",
+  "emailOptional": "Email (optional)",
+  "emailPlaceholder": "you@example.com",
+  "savedAddresses": "Saved addresses",
+  "walletDesc": "Gold scheme payouts are credited here and can be used at checkout.",
+  "availableBalance": "Available balance",
+  "noTransactions": "No transactions yet",
+  "noTransactionsDesc": "Wallet credits from completed gold schemes will appear here.",
+  "walletTx": {
+    "schemePayout": "Scheme payout",
+    "schemePayoutDesc": "Gold scheme 11+1 maturity credit",
+    "purchase": "Used for purchase",
+    "purchaseDesc": "Applied at checkout",
+    "refund": "Refund",
+    "refundDesc": "Order refund",
+    "adjustment": "Adjustment",
+    "adjustmentDesc": "Manual adjustment"
+  },
+  "wishlistEmptyTitle": "Your wishlist is empty",
+  "wishlistEmptyDesc": "Save pieces you love and come back anytime.",
+  "wishlistEyebrow": "Saved",
+  "wishlistTitle": "Wishlist",
+  "cmsNotFound": "Page not found"
+}

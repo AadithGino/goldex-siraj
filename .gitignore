@@ -1,0 +1,56 @@
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/.vite/
+**/.cache/
+**/.turbo/
+**/.parcel-cache/
+
+.DS_Store
+**/.DS_Store
+__MACOSX/
+**/__MACOSX/
+Thumbs.db
+
+*.log
+logs/
+**/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+backend/uploads/
+uploads/
+**/uploads/
+
+# MongoDB Memory Server / binary caches
+.mongodb-binaries/
+**/mongodb-memory-server*/
+**/.cache/mongodb-memory-server/**
+
+# Editor / OS
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Secrets / local certs
+*.pem
+*.p12
+*.key
+!.env.example
+
+# Test / temp artifacts
+*.tmp
+.tmp/
+.temp/
+**/tmp/

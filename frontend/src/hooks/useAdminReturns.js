@@ -1,0 +1,5 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+const adapt = (item) => ({ ...item, orders: item.order_id && typeof item.order_id === 'object' ? item.order_id : item.orders, customers: item.customer_id && typeof item.customer_id === 'object' ? item.customer_id : item.customers })
+export function useAdminReturns(status) { return useQuery({ queryKey: ['admin-returns', status], queryFn: async () => (await api.get('/admin/returns', { status: status && status !== 'all' ? status : undefined })).map(adapt) }) }
+export function useResolveReturn() { const queryClient = useQueryClient(); return useMutation({ mutationFn: ({ id, status, resolution_note }) => api.post(`/admin/returns/${id}/resolve`, { status, resolution_note }), onSuccess: () => ['admin-returns', 'returns', 'admin-dashboard', 'admin-orders', 'orders', 'wallet-balance', 'wallet-transactions', 'admin-coupons', 'admin-coupon-usage-summary', 'admin-coupon-usage'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] })) }) }
