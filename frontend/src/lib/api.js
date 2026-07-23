@@ -1,5 +1,16 @@
 const API_URL = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '')
 
+/** In-memory access token (httpOnly cookies are primary; Bearer helps cross-origin). */
+let accessToken = null
+
+export function setAccessToken(token) {
+  accessToken = token || null
+}
+
+export function clearAccessToken() {
+  accessToken = null
+}
+
 export class ApiError extends Error {
   constructor(message, status, code, details) {
     super(message)
@@ -30,14 +41,28 @@ async function request(method, path, { body, query, headers, retry = true, withM
   const response = await fetch(buildUrl(path, query), {
     method,
     credentials: 'include',
-    headers: { ...(body instanceof FormData ? {} : { 'content-type': 'application/json' }), ...headers },
+    headers: {
+      ...(body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...headers,
+    },
     body: body == null ? undefined : body instanceof FormData ? body : JSON.stringify(body),
   })
   const refreshable = !path.endsWith('/auth/refresh') && !path.endsWith('/auth/login') && !path.endsWith('/auth/logout') && !path.includes('/auth/otp/')
   if (response.status === 401 && retry && refreshable) {
     const staffPortal = window.location.pathname.startsWith('/admin')
-    const refresh = await fetch(buildUrl(staffPortal ? '/staff/auth/refresh' : '/customer/auth/refresh'), { method: 'POST', credentials: 'include' })
-    if (refresh.ok) return request(method, path, { body, query, headers, retry: false, withMeta })
+    const refresh = await fetch(buildUrl(staffPortal ? '/staff/auth/refresh' : '/customer/auth/refresh'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    })
+    if (refresh.ok) {
+      const payload = await refresh.json().catch(() => null)
+      const next = payload?.data?.access_token
+      if (next) setAccessToken(next)
+      return request(method, path, { body, query, headers, retry: false, withMeta })
+    }
+    clearAccessToken()
   }
   return parse(response, { withMeta })
 }

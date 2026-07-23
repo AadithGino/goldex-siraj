@@ -1,6 +1,6 @@
 import { createContext, useContext, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, clearAccessToken, setAccessToken } from '@/lib/api'
 
 const StaffAuthContext = createContext(null)
 
@@ -11,11 +11,16 @@ export function StaffAuthProvider({ children }) {
 
   const signInWithEmail = async (email, password) => {
     const result = await api.post('/staff/auth/login', { email, password })
+    if (result?.access_token) setAccessToken(result.access_token)
     queryClient.setQueryData(['staff-profile'], result.user)
     return result
   }
   const signInWithGoogle = async () => { throw new Error('Google staff login is not enabled. Use email and password.') }
-  const signOut = async () => { await api.post('/staff/auth/logout').catch(() => null); queryClient.setQueryData(['staff-profile'], null) }
+  const signOut = async () => {
+    await api.post('/staff/auth/logout').catch(() => null)
+    clearAccessToken()
+    queryClient.setQueryData(['staff-profile'], null)
+  }
 
   const value = useMemo(() => ({ staff, role: staff?.role || null, isLoading: profile.isLoading, isStaff: !!staff, hasSession: !!staff, isError: profile.isError && profile.error?.status !== 401, signInWithEmail, signInWithGoogle, signOut }), [staff, profile.isLoading, profile.isError, profile.error])
   return <StaffAuthContext.Provider value={value}>{children}</StaffAuthContext.Provider>

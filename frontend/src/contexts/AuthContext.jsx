@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { api, clearAccessToken, setAccessToken } from '@/lib/api'
 
 const AuthContext = createContext(null)
 
@@ -37,6 +37,7 @@ export function AuthProvider({ children }) {
 
   const verifyOtp = useCallback(async (phone, code) => {
     const result = await api.post('/customer/auth/otp/verify', { phone, code: String(code) })
+    if (result?.access_token) setAccessToken(result.access_token)
     setCustomer(result.user)
     queryClient.setQueryData(['customer-profile'], result.user)
     setOtpPhone(null)
@@ -45,6 +46,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     await api.post('/customer/auth/logout').catch(() => null)
+    clearAccessToken()
     setOtpPhone(null)
     setCustomer(null)
     queryClient.clear()

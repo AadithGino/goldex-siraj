@@ -8,11 +8,27 @@ export const SESSION_COOKIES = {
   legacyRefresh: 'refreshToken',
 }
 
+/**
+ * Cross-origin SPAs (Netlify / localhost → api host) need SameSite=None; Secure.
+ * SameSite=Lax only works when FE and API share a site, so login "succeeds"
+ * in JSON but subsequent requests get 401 (cookies never sent).
+ */
 export function cookieOptions() {
+  const secureFlag = process.env.COOKIE_SECURE === 'true'
+  const sameSiteEnv = String(process.env.COOKIE_SAMESITE || '').toLowerCase()
+  let sameSite = 'lax'
+  if (sameSiteEnv === 'none' || sameSiteEnv === 'lax' || sameSiteEnv === 'strict') {
+    sameSite = sameSiteEnv
+  } else if (secureFlag) {
+    // Default production to cross-site friendly cookies
+    sameSite = 'none'
+  }
+
   return {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.COOKIE_SECURE === 'true',
+    sameSite,
+    // SameSite=None requires Secure
+    secure: sameSite === 'none' ? true : secureFlag,
     path: '/',
   }
 }
