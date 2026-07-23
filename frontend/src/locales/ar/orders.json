@@ -44,6 +44,7 @@
   "paymentVerified": "تم التحقق من الدفع",
   "awaitingVerification": "الدفع بانتظار تحقق المتجر.",
   "tracking": "التتبع",
+  "viewDownloadInvoice": "عرض / تنزيل الفاتورة",
   "orderStatusCancelledReturned": "طلب {{status}}",
   "returnsTitle": "الإرجاع والإلغاء",
   "orderCancelled": "تم إلغاء هذا الطلب.",

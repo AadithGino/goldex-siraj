@@ -6,7 +6,7 @@ export async function list(req, res) {
   const query = req.validated?.query ?? req.query
   const resource = req.validated?.params?.resource ?? req.params.resource
   const result = await catalogService.list(resource, query, true)
-  ok(res, serialize(result.items), 200, {
+  await ok(res, serialize(result.items), 200, {
     total: result.total,
     page: result.page,
     limit: result.limit,
@@ -16,16 +16,16 @@ export async function list(req, res) {
 export async function getOne(req, res) {
   const resource = req.validated?.params?.resource ?? req.params.resource
   const id = req.validated?.params?.id ?? req.params.id
-  ok(res, serialize(await catalogService.getOne(resource, id, true)))
+  await ok(res, serialize(await catalogService.getOne(resource, id, true)))
 }
 export async function create(req, res) {
   const resource = req.validated?.params?.resource ?? req.params.resource
-  ok(res, serialize(await catalogService.create(resource, req.validated.body)), 201)
+  await ok(res, serialize(await catalogService.create(resource, req.validated.body)), 201)
 }
 export async function update(req, res) {
   const resource = req.validated?.params?.resource ?? req.params.resource
   const id = req.validated?.params?.id ?? req.params.id
-  ok(res, serialize(await catalogService.update(resource, id, req.validated.body)))
+  await ok(res, serialize(await catalogService.update(resource, id, req.validated.body)))
 }
 export async function remove(req, res) {
   const resource = req.validated?.params?.resource ?? req.params.resource
@@ -35,16 +35,16 @@ export async function remove(req, res) {
 }
 export async function updateSettings(req, res) {
   const kind = req.validated?.params?.kind ?? req.params.kind
-  ok(res, serialize(await catalogService.updateSettings(kind, req.validated.body)))
+  await ok(res, serialize(await catalogService.updateSettings(kind, req.validated.body)))
 }
 export async function createVariantComplete(req, res) {
-  ok(res, serialize(await catalogService.createVariantComplete(req.validated.body, req.auth.sub)), 201)
+  await ok(res, serialize(await catalogService.createVariantComplete(req.validated.body, req.auth.sub)), 201)
 }
 export async function updateVariantComplete(req, res) {
   const id = req.validated?.params?.id ?? req.params.id
-  ok(res, serialize(await catalogService.updateVariantComplete(id, req.validated.body, req.auth.sub)))
+  await ok(res, serialize(await catalogService.updateVariantComplete(id, req.validated.body, req.auth.sub)))
 }
 export async function setPrimaryImage(req, res) {
   const id = req.validated?.params?.id ?? req.params.id
-  ok(res, serialize(await catalogService.setPrimaryImage(id)))
+  await ok(res, serialize(await catalogService.setPrimaryImage(id)))
 }

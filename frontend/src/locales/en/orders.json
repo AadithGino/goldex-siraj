@@ -44,6 +44,7 @@
   "paymentVerified": "Payment verified",
   "awaitingVerification": "Payment awaiting store verification.",
   "tracking": "Tracking",
+  "viewDownloadInvoice": "View / download invoice",
   "orderStatusCancelledReturned": "Order {{status}}",
   "returnsTitle": "Returns & cancellation",
   "orderCancelled": "This order has been cancelled.",

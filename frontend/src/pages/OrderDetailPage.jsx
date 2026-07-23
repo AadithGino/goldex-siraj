@@ -25,7 +25,7 @@ import { openOrderInvoice } from '@/lib/orderInvoice'
 import { useStoreSettings } from '@/hooks/useStoreSettings'
 
 function OrderDetailContent() {
-  const { t } = useTranslation(['orders', 'common', 'checkout'])
+  const { t, i18n } = useTranslation(['orders', 'common', 'checkout'])
   const { id } = useParams()
   const { data: order, isLoading, error, refetch, isFetching } = useOrder(id)
   const { data: storeSettings } = useStoreSettings()
@@ -116,10 +116,14 @@ function OrderDetailContent() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => openOrderInvoice(order, { store: storeSettings, autoPrint: false })}
+            onClick={() => openOrderInvoice(order, {
+              store: storeSettings,
+              autoPrint: false,
+              lang: i18n.language,
+            })}
           >
             <Printer className="h-4 w-4" />
-            {t('orders:viewDownloadInvoice', 'View / download invoice')}
+            {t('orders:viewDownloadInvoice')}
           </Button>
         </div>
       </div>

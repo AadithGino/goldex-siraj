@@ -3,5 +3,5 @@ import { ok } from '../../utils/apiResponse.js'
 import { serialize } from '../../utils/serialize.js'
 
 export async function uploadReturnProof(req, res) {
-  ok(res, serialize(await storeReturnProof(req.auth.sub, req.file)), 201)
+  await ok(res, serialize(await storeReturnProof(req.auth.sub, req.file)), 201)
 }

@@ -13,18 +13,18 @@ export async function login(req, res) {
   const staff = await authService.staffLogin(req.validated.body.email, req.validated.body.password)
   const tokens = await authService.issueSession(staff, 'staff', { userAgent: req.get('user-agent'), ip: req.ip })
   setStaffSessionCookies(res, tokens)
-  ok(res, { user: serialize(staff), access_token: tokens.accessToken })
+  await ok(res, { user: serialize(staff), access_token: tokens.accessToken })
 }
 export async function refresh(req, res) {
   const result = await authService.rotateSession(readStaffRefreshToken(req), { userAgent: req.get('user-agent'), ip: req.ip })
   if (result.type !== 'staff') throw new AppError(403, 'WRONG_PORTAL', 'Use the customer portal')
   setStaffSessionCookies(res, result.tokens)
-  ok(res, { user: serialize(result.actor), access_token: result.tokens.accessToken })
+  await ok(res, { user: serialize(result.actor), access_token: result.tokens.accessToken })
 }
 export async function me(req, res) {
   const staff = await Staff.findOne({ _id: req.auth.sub, isActive: true })
   if (!staff) throw new AppError(404, 'STAFF_NOT_FOUND', 'Staff account not found')
-  ok(res, serialize(staff))
+  await ok(res, serialize(staff))
 }
 export async function logout(req, res) {
   await authService.revokeSession(readStaffRefreshToken(req))
