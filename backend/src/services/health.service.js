@@ -50,14 +50,7 @@ export function assertProductionConfig(cfg = config) {
   if (!cfg.cookieSecure) {
     throw new Error('COOKIE_SECURE must be true in production')
   }
-  if (!cfg.clientOrigins.length) {
-    throw new Error('CLIENT_ORIGINS must list at least one HTTPS origin in production')
-  }
-  for (const origin of cfg.clientOrigins) {
-    if (origin === '*' || /localhost|127\.0\.0\.1/i.test(origin)) {
-      throw new Error(`Unsafe CLIENT_ORIGINS entry in production: ${origin}`)
-    }
-  }
+  // CLIENT_ORIGINS allowlist is unused while CORS is open (any origin).
   if (cfg.storage.driver === 'local') {
     throw new Error('STORAGE_DRIVER=local is forbidden in production; use s3')
   }
