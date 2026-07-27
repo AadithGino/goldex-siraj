@@ -31,6 +31,7 @@ export function detectMimeFromBuffer(buffer) {
 const KIND_ALLOWED = {
   product: new Set(['image/jpeg', 'image/png', 'image/webp']),
   banner: new Set(['image/jpeg', 'image/png', 'image/webp']),
+  category: new Set(['image/jpeg', 'image/png', 'image/webp']),
   return: new Set(['image/jpeg', 'image/png', 'image/webp']),
   certificate: new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
 }

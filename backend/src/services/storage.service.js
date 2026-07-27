@@ -6,6 +6,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { config } from '../config/env.js'
 import { AppError } from '../utils/AppError.js'
 import { assertSafeUpload } from '../utils/fileSignature.js'
+import { optimizeUploadImage } from '../utils/imageOptimize.js'
+import { logger } from '../config/logger.js'
 
 /**
  * Bucket layout:
@@ -14,6 +16,7 @@ import { assertSafeUpload } from '../utils/fileSignature.js'
 const UPLOAD_KINDS = {
   product: { visibility: 'public', folder: 'product-images' },
   banner: { visibility: 'public', folder: 'banner-images' },
+  category: { visibility: 'public', folder: 'category-images' },
   video: { visibility: 'public', folder: 'product-videos' },
   certificate: { visibility: 'private', folder: 'product-certificates' },
   return: { visibility: 'private', folder: 'return-proof-images' },
@@ -28,7 +31,9 @@ const extensions = {
   'video/webm': '.webm',
 }
 
-const DEFAULT_SIGNED_TTL = 60 * 60 // 1 hour (console links often use 300s; longer is better for UI)
+const DEFAULT_SIGNED_TTL = 60 * 60
+/** Reuse signed URLs so browsers can cache (new signature every response defeats cache). */
+const signedUrlCache = new Map()
 
 /** @param {string} kind */
 export function resolveUploadKind(kind) {
@@ -37,9 +42,6 @@ export function resolveUploadKind(kind) {
   return meta
 }
 
-/**
- * Build object key matching the jewellers/{tenant}/public|private/... tree.
- */
 export function buildObjectKey(kind, mime, { now = new Date() } = {}) {
   const meta = resolveUploadKind(kind)
   const ext = extensions[mime]
@@ -75,7 +77,6 @@ function getS3() {
   })
 }
 
-/** Canonical unsigned object URL (not fetchable if the bucket is private). */
 export function canonicalObjectUrl(key) {
   if (!key) return null
   const s3 = config.storage.s3
@@ -92,15 +93,11 @@ export function canonicalObjectUrl(key) {
   return `https://${s3.bucket}.s3.${s3.region}.amazonaws.com/${key}`
 }
 
-/**
- * Extract a storage object key from a bare key, canonical S3 URL, or expired signed URL.
- */
 export function extractStorageKey(value) {
   if (value == null) return null
   const raw = String(value).trim()
   if (!raw) return null
 
-  // Already a key (no scheme)
   if (!/^https?:\/\//i.test(raw)) {
     return raw.replace(/^\/+/, '').split('?')[0] || null
   }
@@ -113,17 +110,10 @@ export function extractStorageKey(value) {
   }
 
   const s3 = config.storage.s3
-  const host = url.hostname.toLowerCase()
   let key = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
 
-  // Path-style: endpoint/bucket/key or s3.region.amazonaws.com/bucket/key
   if (s3.bucket && (key === s3.bucket || key.startsWith(`${s3.bucket}/`))) {
     key = key.slice(s3.bucket.length).replace(/^\/+/, '')
-  }
-
-  // Virtual-hosted–style: bucket.s3.region.amazonaws.com/key
-  if (s3.bucket && host.startsWith(`${s3.bucket.toLowerCase()}.`)) {
-    // pathname already is the key
   }
 
   return key || null
@@ -139,9 +129,6 @@ export function isOurStorageObject(value) {
   return key.includes('/public/') || key.includes('/private/')
 }
 
-/**
- * Presigned GET URL (works with private buckets). Matches console-style inline links.
- */
 export async function getSignedObjectUrl(keyOrUrl, {
   expiresIn = signedTtlSeconds(),
   contentDisposition = 'inline',
@@ -153,19 +140,30 @@ export async function getSignedObjectUrl(keyOrUrl, {
     return canonicalObjectUrl(key)
   }
 
+  const cached = signedUrlCache.get(key)
+  if (cached && cached.expiresAt > Date.now() + 120_000) {
+    return cached.url
+  }
+
   const client = getS3()
   const command = new GetObjectCommand({
     Bucket: config.storage.s3.bucket,
     Key: key,
     ...(contentDisposition ? { ResponseContentDisposition: contentDisposition } : {}),
+    ResponseCacheControl: `private, max-age=${Math.min(expiresIn, 3600)}`,
   })
-  return getSignedUrl(client, command, { expiresIn })
+  const url = await getSignedUrl(client, command, { expiresIn })
+  signedUrlCache.set(key, { url, expiresAt: Date.now() + expiresIn * 1000 })
+
+  if (signedUrlCache.size > 2000) {
+    const now = Date.now()
+    for (const [k, v] of signedUrlCache) {
+      if (v.expiresAt <= now) signedUrlCache.delete(k)
+    }
+  }
+  return url
 }
 
-/**
- * Deep-walk JSON-ish payloads and replace our S3 object refs with fresh signed URLs.
- * Safe for local driver (no-op passthrough via getSignedObjectUrl).
- */
 export async function signMediaUrls(value, { cache = new Map() } = {}) {
   if (value == null) return value
   if (typeof value === 'string') {
@@ -195,7 +193,24 @@ export async function upload(kind, file) {
     throw new AppError(413, 'FILE_TOO_LARGE', 'Uploaded file exceeds the maximum allowed size')
   }
   const meta = resolveUploadKind(kind)
-  const mime = await assertSafeUpload(kind, file)
+  const detectedMime = await assertSafeUpload(kind, file)
+  const optimized = await optimizeUploadImage(kind, file.buffer, detectedMime)
+  if (optimized.bytesOut < optimized.bytesIn) {
+    logger.info({
+      kind,
+      bytesIn: optimized.bytesIn,
+      bytesOut: optimized.bytesOut,
+      mime: optimized.mime,
+      width: optimized.width,
+      height: optimized.height,
+    }, 'upload image optimized')
+  }
+  if (optimized.buffer.length > config.storage.maxBytes) {
+    throw new AppError(413, 'FILE_TOO_LARGE', 'Optimized file still exceeds the maximum allowed size')
+  }
+
+  const mime = optimized.mime
+  const body = optimized.buffer
   const key = buildObjectKey(kind, mime)
   const storageUrl = canonicalObjectUrl(key)
 
@@ -204,27 +219,29 @@ export async function upload(kind, file) {
       await getS3().send(new PutObjectCommand({
         Bucket: config.storage.s3.bucket,
         Key: key,
-        Body: file.buffer,
+        Body: body,
         ContentType: mime,
         CacheControl: meta.visibility === 'public'
           ? 'public,max-age=31536000,immutable'
-          : 'private,no-cache',
+          : 'private, max-age=3600',
       }))
       const signedUrl = await getSignedObjectUrl(key)
       return {
         key,
-        /** Persist this (or `key`) in DB — never persist a signed URL. */
         storage_url: storageUrl,
-        /** Fresh signed URL for immediate preview / <img src>. */
         url: signedUrl,
         mime,
         visibility: meta.visibility,
         expires_in: signedTtlSeconds(),
+        optimized: {
+          bytes_in: optimized.bytesIn,
+          bytes_out: optimized.bytesOut,
+        },
       }
     }
     const target = path.resolve(config.storage.localPath, key)
     await mkdir(path.dirname(target), { recursive: true })
-    await writeFile(target, file.buffer, { flag: 'wx' })
+    await writeFile(target, body, { flag: 'wx' })
     return {
       key,
       storage_url: storageUrl,
@@ -232,6 +249,10 @@ export async function upload(kind, file) {
       mime,
       visibility: meta.visibility,
       expires_in: null,
+      optimized: {
+        bytes_in: optimized.bytesIn,
+        bytes_out: optimized.bytesOut,
+      },
     }
   } catch (error) {
     if (error instanceof AppError) throw error
@@ -244,6 +265,7 @@ export async function removeObject(keyOrUrl) {
   if (!key) return
   if (config.storage.driver === 's3') {
     await getS3().send(new DeleteObjectCommand({ Bucket: config.storage.s3.bucket, Key: key }))
+    signedUrlCache.delete(key)
     return
   }
   const target = path.resolve(config.storage.localPath, key)
