@@ -11,21 +11,38 @@ import {
 
 const requestMeta = (req) => ({ userAgent: req.get('user-agent'), ip: req.ip })
 
+function sessionPayload(user, tokens) {
+  return {
+    user: serialize(user),
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+  }
+}
+
+function refreshTokenFrom(req) {
+  return req.validated?.body?.refresh_token
+    || req.validated?.body?.refreshToken
+    || req.body?.refresh_token
+    || req.body?.refreshToken
+    || readCustomerRefreshToken(req)
+    || null
+}
+
 export async function sendOtp(req, res) { await ok(res, await authService.sendOtp(req.validated.body.phone), 202) }
 export async function verifyOtp(req, res) {
   const customer = await authService.verifyOtp(req.validated.body.phone, req.validated.body.code)
   const tokens = await authService.issueSession(customer, 'customer', requestMeta(req))
   setCustomerSessionCookies(res, tokens)
-  await ok(res, { user: serialize(customer), access_token: tokens.accessToken }, 200)
+  await ok(res, sessionPayload(customer, tokens), 200)
 }
 export async function refresh(req, res) {
-  const result = await authService.rotateSession(readCustomerRefreshToken(req), requestMeta(req))
+  const result = await authService.rotateSession(refreshTokenFrom(req), requestMeta(req))
   if (result.type !== 'customer') throw new AppError(403, 'WRONG_PORTAL', 'Use the staff portal')
   setCustomerSessionCookies(res, result.tokens)
-  await ok(res, { user: serialize(result.actor), access_token: result.tokens.accessToken })
+  await ok(res, sessionPayload(result.actor, result.tokens))
 }
 export async function logout(req, res) {
-  await authService.revokeSession(readCustomerRefreshToken(req))
+  await authService.revokeSession(refreshTokenFrom(req))
   clearCustomerSessionCookies(res)
   res.status(204).end()
 }

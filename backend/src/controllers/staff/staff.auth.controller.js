@@ -9,17 +9,34 @@ import {
   setStaffSessionCookies,
 } from '../../utils/sessionCookies.js'
 
+function sessionPayload(user, tokens) {
+  return {
+    user: serialize(user),
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+  }
+}
+
+function refreshTokenFrom(req) {
+  return req.validated?.body?.refresh_token
+    || req.validated?.body?.refreshToken
+    || req.body?.refresh_token
+    || req.body?.refreshToken
+    || readStaffRefreshToken(req)
+    || null
+}
+
 export async function login(req, res) {
   const staff = await authService.staffLogin(req.validated.body.email, req.validated.body.password)
   const tokens = await authService.issueSession(staff, 'staff', { userAgent: req.get('user-agent'), ip: req.ip })
   setStaffSessionCookies(res, tokens)
-  await ok(res, { user: serialize(staff), access_token: tokens.accessToken })
+  await ok(res, sessionPayload(staff, tokens))
 }
 export async function refresh(req, res) {
-  const result = await authService.rotateSession(readStaffRefreshToken(req), { userAgent: req.get('user-agent'), ip: req.ip })
+  const result = await authService.rotateSession(refreshTokenFrom(req), { userAgent: req.get('user-agent'), ip: req.ip })
   if (result.type !== 'staff') throw new AppError(403, 'WRONG_PORTAL', 'Use the customer portal')
   setStaffSessionCookies(res, result.tokens)
-  await ok(res, { user: serialize(result.actor), access_token: result.tokens.accessToken })
+  await ok(res, sessionPayload(result.actor, result.tokens))
 }
 export async function me(req, res) {
   const staff = await Staff.findOne({ _id: req.auth.sub, isActive: true })
@@ -27,7 +44,7 @@ export async function me(req, res) {
   await ok(res, serialize(staff))
 }
 export async function logout(req, res) {
-  await authService.revokeSession(readStaffRefreshToken(req))
+  await authService.revokeSession(refreshTokenFrom(req))
   clearStaffSessionCookies(res)
   res.status(204).end()
 }

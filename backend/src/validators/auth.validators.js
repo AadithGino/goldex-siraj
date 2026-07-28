@@ -22,3 +22,11 @@ export const changePasswordSchema = {
     new_password: z.string().min(8).max(128),
   }),
 }
+
+/** Cookie is preferred; body refresh_token supports cross-origin SPAs (S3/CloudFront). */
+export const refreshSessionSchema = {
+  body: z.object({
+    refresh_token: z.string().min(20).max(2000).optional(),
+    refreshToken: z.string().min(20).max(2000).optional(),
+  }).optional().default({}),
+}
