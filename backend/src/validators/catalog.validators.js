@@ -122,17 +122,16 @@ const RESERVED_VARIANT_METADATA_KEYS = new Set([
   'createRequestHash', 'create_request_hash',
 ])
 
-function rejectReservedMetadata(body, ctx) {
+/**
+ * Drop server-owned metadata keys from client payloads.
+ * Admin UIs round-trip GET→PATCH and would otherwise fail after create
+ * (idempotency_key / create_request_hash are stored on the variant).
+ */
+function stripReservedMetadata(body) {
   const meta = body?.metadata
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return
   for (const key of Object.keys(meta)) {
-    if (RESERVED_VARIANT_METADATA_KEYS.has(key)) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `metadata.${key} is reserved and cannot be set by clients`,
-        path: ['metadata', key],
-      })
-    }
+    if (RESERVED_VARIANT_METADATA_KEYS.has(key)) delete meta[key]
   }
 }
 
@@ -236,8 +235,9 @@ const variantFields = {
   diameterMm: optionalFiniteNumber(z.number().finite().min(0)),
   size_unit: z.string().trim().max(20).nullable().optional(),
   sizeUnit: z.string().trim().max(20).nullable().optional(),
-  tax_treatment: taxTreatmentEnum.optional(),
-  taxTreatment: taxTreatmentEnum.optional(),
+  // null = inherit product tax treatment (admin UI "Inherit from product")
+  tax_treatment: taxTreatmentEnum.nullable().optional(),
+  taxTreatment: taxTreatmentEnum.nullable().optional(),
   weight_grams: optionalFiniteNumber(z.number().finite().positive().max(1_000_000)),
   weightGrams: optionalFiniteNumber(z.number().finite().positive().max(1_000_000)),
   effective_weight: optionalFiniteNumber(z.number().finite().min(0).max(1_000_000)),
@@ -259,7 +259,7 @@ const variantFields = {
 
 const variantBody = z.object({ ...variantFields }).strict().superRefine((body, ctx) => {
   rejectAliasConflicts(VARIANT_ALIAS_PAIRS)(body, ctx)
-  rejectReservedMetadata(body, ctx)
+  stripReservedMetadata(body)
 })
 
 
@@ -571,7 +571,7 @@ export const createVariantCompleteSchema = {
     stockIdempotencyKey: z.string().trim().min(8).max(128).optional(),
   }).strict().superRefine((body, ctx) => {
     rejectAliasConflicts(VARIANT_ALIAS_PAIRS)(body, ctx)
-    rejectReservedMetadata(body, ctx)
+    stripReservedMetadata(body)
   }),
 }
 
@@ -591,7 +591,7 @@ export const updateVariantCompleteSchema = {
     stockIdempotencyKey: z.string().trim().min(8).max(128).optional(),
   }).strict().superRefine((body, ctx) => {
     rejectAliasConflicts(VARIANT_ALIAS_PAIRS)(body, ctx)
-    rejectReservedMetadata(body, ctx)
+    stripReservedMetadata(body)
     const stock = body.stock_qty ?? body.stockQty
     const expected = body.expected_stock_qty ?? body.expectedStockQty
     if (stock !== undefined && expected === undefined) {

@@ -343,18 +343,40 @@ describe('Phase 22.8 variant purity and tax', () => {
     expect(v24.taxTreatment).toBe('zero_rated')
   })
 
-  it('rejects reserved metadata keys from clients', async () => {
-    await expect(catalogService.createVariantComplete({
+  it('strips reserved metadata keys from clients instead of rejecting round-trips', async () => {
+    const created = await catalogService.createVariantComplete({
       product_id: product.id,
-      sku: 'META-BAD',
+      sku: 'META-STRIP',
       label: 'x',
       purity: '22k',
       weight_grams: 2,
       effective_weight: 2,
       stock_qty: 0,
       idempotency_key: 'meta-reserved-1',
-      metadata: { idempotencyKey: 'hack' },
-    }, staff.id)).rejects.toMatchObject({ code: 'RESERVED_METADATA' })
+      metadata: {
+        idempotencyKey: 'hack',
+        create_request_hash: 'forged',
+        note: 'keep-me',
+      },
+    }, staff.id)
+    expect(created.metadata?.idempotencyKey).toBe('meta-reserved-1')
+    expect(created.metadata?.idempotencyKey).not.toBe('hack')
+    expect(created.metadata?.create_request_hash).toBeUndefined()
+    expect(created.metadata?.note).toBe('keep-me')
+
+    const updated = await catalogService.updateVariantComplete(created.id, {
+      label: 'updated',
+      metadata: {
+        idempotency_key: created.metadata?.idempotencyKey,
+        create_request_hash: created.metadata?.createRequestHash,
+        note: 'still-here',
+      },
+      idempotency_key: 'meta-reserved-update-1',
+    }, staff.id)
+    expect(updated.metadata?.idempotencyKey).toBe('meta-reserved-1')
+    expect(updated.metadata?.createRequestHash).toBeTruthy()
+    expect(updated.metadata?.note).toBe('still-here')
+    expect(updated.label).toBe('updated')
   })
 })
 

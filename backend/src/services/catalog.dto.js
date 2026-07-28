@@ -73,9 +73,8 @@ function assertSafeMetadata(value, { allowReserved = false } = {}) {
     if (key.startsWith('$') || key.includes('.') || key === '__proto__' || key === 'constructor' || key === 'prototype') {
       throw new AppError(422, 'VALIDATION_ERROR', `metadata key "${key}" is not allowed`)
     }
-    if (!allowReserved && RESERVED_VARIANT_META.has(key)) {
-      throw new AppError(422, 'RESERVED_METADATA', `metadata.${key} is reserved and cannot be set by clients`)
-    }
+    // Ignore client attempts / round-tripped server keys; service re-applies them.
+    if (!allowReserved && RESERVED_VARIANT_META.has(key)) continue
     const v = value[key]
     if (v != null && typeof v === 'object') {
       throw new AppError(422, 'VALIDATION_ERROR', `metadata nesting deeper than ${MAX_META_DEPTH} is not allowed`)
@@ -160,9 +159,16 @@ export function toCatalogWriteDto(resource, payload, { partial = false } = {}) {
     dto.purity = normalizePurity(dto.purity)
   }
 
-  if (resource === 'products' || resource === 'variants') {
+  if (resource === 'products') {
     if (dto.purity != null || (dto.taxTreatment != null && dto.taxTreatment !== '')) {
       dto.taxTreatment = resolveTaxTreatment(dto.purity, dto.taxTreatment)
+    }
+  } else if (resource === 'variants') {
+    // Explicit treatment is resolved; null/empty means inherit product tax at pricing time.
+    if (dto.taxTreatment != null && dto.taxTreatment !== '') {
+      dto.taxTreatment = resolveTaxTreatment(dto.purity, dto.taxTreatment)
+    } else if ('taxTreatment' in dto) {
+      dto.taxTreatment = null
     }
   } else if (dto.taxTreatment != null && dto.taxTreatment !== '') {
     dto.taxTreatment = resolveTaxTreatment(dto.purity, dto.taxTreatment)

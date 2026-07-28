@@ -452,6 +452,21 @@ export async function updateVariantComplete(variantId, payload, actorId) {
       }
 
       if (Object.keys(dto).length) {
+        if (dto.metadata != null) {
+          // Client metadata must not wipe server-owned idempotency fields.
+          const prevMeta = current.metadata && typeof current.metadata === 'object' ? current.metadata : {}
+          dto.metadata = {
+            ...dto.metadata,
+            ...(prevMeta.idempotencyKey != null ? { idempotencyKey: prevMeta.idempotencyKey } : {}),
+            ...(prevMeta.createRequestHash != null ? { createRequestHash: prevMeta.createRequestHash } : {}),
+            ...(prevMeta.lastUpdateIdempotencyKey != null
+              ? { lastUpdateIdempotencyKey: prevMeta.lastUpdateIdempotencyKey }
+              : {}),
+            ...(prevMeta.lastUpdateRequestHash != null
+              ? { lastUpdateRequestHash: prevMeta.lastUpdateRequestHash }
+              : {}),
+          }
+        }
         Object.assign(current, dto)
       }
       if (aggregateKey) {
