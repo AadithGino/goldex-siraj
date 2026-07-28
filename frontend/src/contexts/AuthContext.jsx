@@ -37,7 +37,12 @@ export function AuthProvider({ children }) {
 
   const verifyOtp = useCallback(async (phone, code) => {
     const result = await api.post('/customer/auth/otp/verify', { phone, code: String(code) })
-    if (result?.access_token) setAccessToken(result.access_token)
+    if (result?.access_token) {
+      setAccessToken(result.access_token, {
+        refreshToken: result.refresh_token,
+        portal: 'customer',
+      })
+    }
     setCustomer(result.user)
     queryClient.setQueryData(['customer-profile'], result.user)
     setOtpPhone(null)
@@ -46,7 +51,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     await api.post('/customer/auth/logout').catch(() => null)
-    clearAccessToken()
+    clearAccessToken('customer')
     setOtpPhone(null)
     setCustomer(null)
     queryClient.clear()

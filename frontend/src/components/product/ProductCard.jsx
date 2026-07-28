@@ -50,6 +50,8 @@ export function ProductCard({ product }) {
                 <img
                   src={primary}
                   alt={displayName}
+                  loading="lazy"
+                  decoding="async"
                   className={cn(
                     imageClass,
                     hasHoverImage && 'opacity-100 group-hover:opacity-0'
@@ -60,6 +62,8 @@ export function ProductCard({ product }) {
                     src={hover}
                     alt=""
                     aria-hidden
+                    loading="lazy"
+                    decoding="async"
                     className={cn(imageClass, 'opacity-0 group-hover:opacity-100')}
                   />
                 )}

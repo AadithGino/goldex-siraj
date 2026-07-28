@@ -41,6 +41,40 @@ describe('Phase 22.8 variant/stone payload builders', () => {
     expect(payload.low_stock_threshold).toBe(0)
   })
 
+  it('maps empty tax_treatment to null (inherit product VAT)', () => {
+    const inherit = toVariantPayload({
+      sku: 'X',
+      purity: '22k',
+      weight_grams: 2,
+      tax_treatment: '',
+    })
+    expect(inherit.tax_treatment).toBeNull()
+
+    const investment = toVariantPayload({
+      sku: 'X',
+      purity: '24k',
+      weight_grams: 2,
+      tax_treatment: 'investment_precious_metal_zero_rated',
+    })
+    expect(investment.tax_treatment).toBe('investment_precious_metal_zero_rated')
+  })
+
+  it('strips reserved metadata keys from variant payloads', () => {
+    const payload = toVariantPayload({
+      sku: 'X',
+      purity: '22k',
+      weight_grams: 2,
+      metadata: {
+        idempotency_key: 'server-key',
+        create_request_hash: 'abc',
+        note: 'keep',
+      },
+    })
+    expect(payload.metadata.idempotency_key).toBeUndefined()
+    expect(payload.metadata.create_request_hash).toBeUndefined()
+    expect(payload.metadata.note).toBe('keep')
+  })
+
   it('invalid numeric input blocks payload creation', () => {
     expect(() => toVariantPayload({
       sku: 'X',

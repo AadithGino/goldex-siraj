@@ -11,14 +11,19 @@ export function StaffAuthProvider({ children }) {
 
   const signInWithEmail = async (email, password) => {
     const result = await api.post('/staff/auth/login', { email, password })
-    if (result?.access_token) setAccessToken(result.access_token)
+    if (result?.access_token) {
+      setAccessToken(result.access_token, {
+        refreshToken: result.refresh_token,
+        portal: 'staff',
+      })
+    }
     queryClient.setQueryData(['staff-profile'], result.user)
     return result
   }
   const signInWithGoogle = async () => { throw new Error('Google staff login is not enabled. Use email and password.') }
   const signOut = async () => {
     await api.post('/staff/auth/logout').catch(() => null)
-    clearAccessToken()
+    clearAccessToken('staff')
     queryClient.setQueryData(['staff-profile'], null)
   }
 

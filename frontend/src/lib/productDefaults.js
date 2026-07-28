@@ -218,12 +218,20 @@ export function toVariantPayload(input = {}) {
     input.ring_size || (jewelleryType === 'ring' ? (input.size || input.size_label || null) : null)
   const bangleSize =
     input.bangle_size || (jewelleryType === 'bangle' ? (input.size || input.size_label || null) : null)
-  // Do not embed stone_groups in metadata for normal editing (Phase 22.8).
+  // Do not embed stone_groups or server-owned keys in metadata for normal editing.
   const incomingMetadata =
     input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
       ? { ...input.metadata }
       : {}
   delete incomingMetadata.stone_groups
+  for (const key of [
+    'idempotencyKey', 'idempotency_key',
+    'lastUpdateIdempotencyKey', 'last_update_idempotency_key',
+    'lastUpdateRequestHash', 'last_update_request_hash',
+    'createRequestHash', 'create_request_hash',
+  ]) {
+    delete incomingMetadata[key]
+  }
 
   const payload = {
     sku: input.sku || null,
@@ -249,15 +257,22 @@ export function toVariantPayload(input = {}) {
     length_mm: parseOptionalNumber(input.length_mm, 'length_mm', { min: 0 }),
     diameter_mm: parseOptionalNumber(input.diameter_mm, 'diameter_mm', { min: 0 }),
     size_unit: input.size_unit || null,
-    tax_treatment:
-      input.tax_treatment === 'investment_precious_metal_zero_rated'
-        ? 'investment_precious_metal_zero_rated'
-        : input.tax_treatment === 'standard'
-          ? 'standard'
-          : null,
+    tax_treatment: normalizeVariantTaxTreatment(input.tax_treatment),
     metadata: incomingMetadata,
   }
   return pickVariantDbPayload(payload)
+}
+
+/** Empty/null = inherit product VAT treatment. Pass through known enum values. */
+function normalizeVariantTaxTreatment(value) {
+  if (value == null || value === '') return null
+  const allowed = new Set([
+    'standard',
+    'zero_rated',
+    'exempt',
+    'investment_precious_metal_zero_rated',
+  ])
+  return allowed.has(value) ? value : null
 }
 
 export function toProductStonePayload(stone, displayOrder = 0) {
