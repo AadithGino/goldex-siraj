@@ -102,11 +102,11 @@ export function calculateBreakup({
 
   const makingChargeType = product.makingChargeType || 'percent'
   const makingChargeValue = Number(product.makingChargeValue || 0)
-  const makingCharge = Number(variant.makingCharge) > 0
-    ? Number(variant.makingCharge)
-    : makingChargeType === 'percent'
-      ? roundMoney(goldValue * makingChargeValue / 100)
-      : makingChargeValue
+  const makingCharge = makingChargeType === 'flat'
+    ? makingChargeValue
+    : Number(variant.makingCharge) > 0
+      ? Number(variant.makingCharge)
+      : roundMoney(goldValue * makingChargeValue / 100)
 
   let stones = Array.isArray(stoneBreakup) ? stoneBreakup : null
   let stoneCharge

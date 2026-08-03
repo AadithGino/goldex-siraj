@@ -99,6 +99,19 @@ describe('gold and stone pricing calculator', () => {
     expect(result.total).toBe(2105)
   })
 
+  it('honors product flat making charge even when variant has legacy making charge', () => {
+    const variant = { weightGrams: 10, effectiveWeight: 10, makingCharge: 350, stoneCharge: 0 }
+    const result = calculateBreakup({
+      variant,
+      product: { wastagePercent: 0, makingChargeType: 'flat', makingChargeValue: 100, taxTreatment: 'standard' },
+      tax: { isActive: false, applyOn: 'total' },
+      goldRate: 200,
+    })
+    // flat charge must come from product setting, not legacy variant override
+    expect(result.making_charge).toBe(100)
+    expect(result.total).toBe(2100)
+  })
+
   it('applies total VAT and inclusive VAT', () => {
     const variant = { weightGrams: 10, effectiveWeight: 10, makingCharge: 0, stoneCharge: 0 }
     const exclusive = calculateBreakup({

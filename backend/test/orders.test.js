@@ -241,6 +241,23 @@ describe('order placement and customer DTO', () => {
     expect(order.total).toBe(order.estimatedTotal)
     expect(order.amountDue).toBe(order.total)
   })
+
+  it('respects fixed price override at order placement', async () => {
+    variant.fixedPrice = 800
+    await variant.save()
+    await seedCart(1)
+
+    const order = await orderService.placeOrder(customer.id, {
+      address_id: address.id,
+      payment_method: 'manual',
+      wallet_use: 0,
+      idempotency_key: 'fixed-override-1',
+    })
+
+    expect(order.items).toHaveLength(1)
+    expect(order.items[0].breakup.price_source).toBe('fixed')
+    expect(order.items[0].breakup.fixed_price).toBe(800)
+  })
 })
 
 describe('admin order access', () => {

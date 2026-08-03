@@ -218,7 +218,7 @@ export async function placeOrder(customerId, input) {
         const [cart, address] = await Promise.all([CartItem.find({ customerId }).session(session), Address.findOne({ _id: input.address_id, customerId }).session(session)])
         if (!cart.length) throw new AppError(409, 'EMPTY_CART', 'Bag is empty')
         if (!address) throw new AppError(422, 'ADDRESS_NOT_FOUND', 'Delivery address not found')
-        const { lines, rateMap } = await buildLines(cart, session, true)
+        const { lines, rateMap } = await buildLines(cart, session)
         const rawSubtotal = lines.reduce((sum, line) => sum + line.breakup.unit_subtotal_before_vat * line.qty, 0)
         const couponResult = input.coupon_code ? await validateCoupon(input.coupon_code, rawSubtotal, customerId) : { valid: true, discount_amount: 0 }
         if (input.coupon_code && !couponResult.valid) throw new AppError(409, 'COUPON_INVALID', `Coupon cannot be applied: ${couponResult.reason}`)
