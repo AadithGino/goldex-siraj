@@ -37,3 +37,16 @@ export function sanitizeCmsHtml(input) {
   if (typeof input !== 'string') return ''
   return sanitizeHtml(input, CMS_SANITIZE_OPTIONS)
 }
+
+/** Render CMS content that may be plain text (admin textarea) or allowed HTML. */
+export function formatCmsContentForDisplay(input) {
+  const sanitized = sanitizeCmsHtml(String(input || ''))
+  if (!sanitized.trim()) return ''
+  if (/<(?:p|h[1-4]|ul|ol|li|blockquote|br|strong|em|a)\b/i.test(sanitized)) {
+    return sanitized
+  }
+  return sanitized
+    .split(/\n{2,}/)
+    .map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`)
+    .join('')
+}

@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { RequireCustomer } from '@/components/auth/RequireCustomer'
+import { SchemeEnrollDialog } from '@/components/scheme/SchemeEnrollDialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatINR } from '@/lib/pricing'
@@ -23,6 +25,7 @@ function SchemePageContent() {
   const { data: enrollments } = useMyEnrollments()
   const enroll = useEnrollScheme()
   const navigate = useNavigate()
+  const [enrollScheme, setEnrollScheme] = useState(null)
 
   if (settings && settings.gold_scheme_enabled === false) {
     return (
@@ -36,13 +39,14 @@ function SchemePageContent() {
     )
   }
 
-  const handleEnroll = async (scheme) => {
+  const handleEnroll = async (payload) => {
     try {
-      const result = await enroll.mutateAsync({ scheme_id: scheme.id })
+      const result = await enroll.mutateAsync(payload)
       toast.success(t('common:schemeEnrolled'))
       navigate(`/scheme/${result.enrollment_id}`)
     } catch (err) {
       toast.error(formatSchemeError(err))
+      throw err
     }
   }
 
@@ -96,7 +100,7 @@ function SchemePageContent() {
               <div className="mt-4 space-y-2">
                 <Button
                   className="w-full"
-                  onClick={() => handleEnroll(scheme)}
+                  onClick={() => setEnrollScheme(scheme)}
                   disabled={enroll.isPending || !!existingActiveEnrollment}
                 >
                   {existingActiveEnrollment ? 'Already enrolled' : t('scheme:enrollNow')}
@@ -162,6 +166,13 @@ function SchemePageContent() {
           </div>
         </div>
       )}
+      <SchemeEnrollDialog
+        open={!!enrollScheme}
+        onOpenChange={(open) => !open && setEnrollScheme(null)}
+        scheme={enrollScheme}
+        onConfirm={handleEnroll}
+        isSubmitting={enroll.isPending}
+      />
     </div>
   )
 }

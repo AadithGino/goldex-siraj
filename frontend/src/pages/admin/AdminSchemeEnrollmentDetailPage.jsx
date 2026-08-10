@@ -11,6 +11,7 @@ import {
   SchemeEnrollmentSummary,
   SchemeInstallmentTimeline,
 } from '@/components/scheme/SchemeEnrollmentCard'
+import { SchemeEnrollmentIdentityPanel } from '@/components/scheme/SchemeEnrollmentIdentityPanel'
 import { SchemeRecordPaymentDialog } from '@/components/scheme/SchemeRecordPaymentDialog'
 import {
   useAdminSchemeEnrollment,
@@ -19,7 +20,7 @@ import {
 import { formatAED } from '@/lib/pricing'
 import { formatDateSafe } from '@/lib/date'
 import { formatDubaiBusinessDate, isDubaiBusinessDateReached } from '@/lib/dubaiTime'
-import { paymentMethodLabel } from '@/lib/schemeUtils'
+import { paymentMethodLabel, computeSchemePayoutPreview } from '@/lib/schemeUtils'
 import { useStaffRole } from '@/hooks/useStaffRole'
 import { formatSchemeError } from '@/lib/schemeErrors'
 
@@ -31,7 +32,7 @@ export function AdminSchemeEnrollmentDetailPage() {
   const canCancelSchemeEnrollment = isOwner || isManager
   const canCompleteScheme = isOwner || isManager
   const { data: enrollment, isLoading } = useAdminSchemeEnrollment(id)
-  const { updateEnrollmentStatus, completeEnrollment } = useAdminSchemeMutations()
+  const { updateEnrollmentStatus, completeEnrollment, updateEnrollmentIdentity } = useAdminSchemeMutations()
   const [recordInstallment, setRecordInstallment] = useState(null)
 
   const installments = enrollment?.scheme_installments || []
@@ -50,9 +51,7 @@ export function AdminSchemeEnrollmentDetailPage() {
   const monthlyAmount = Number(
     enrollment?.monthly_amount_snapshot || enrollment?.schemes?.monthly_amount || 0,
   )
-  const bonusMonths = Number(enrollment?.bonus_months_snapshot || enrollment?.schemes?.bonus_months || 0)
-  const tenureMonths = Number(enrollment?.tenure_months_snapshot || enrollment?.schemes?.tenure_months || 0)
-  const serverPayout = monthlyAmount * (tenureMonths + bonusMonths)
+  const serverPayout = computeSchemePayoutPreview(enrollment)
   const eligibleForCompletion =
     canCompleteScheme
     && enrollment?.status === 'active'
@@ -161,6 +160,15 @@ This cannot be reactivated later.`
           Enrolled {formatDateSafe(enrollment.start_date || enrollment.started_at, 'dd MMM yyyy')}
         </Badge>
       </div>
+
+      <SchemeEnrollmentIdentityPanel
+        enrollment={enrollment}
+        canEdit={isOwner || isManager}
+        onSave={async (body) => {
+          await updateEnrollmentIdentity.mutateAsync({ enrollmentId: id, ...body })
+          await refetchEnrollmentDetail()
+        }}
+      />
 
       {enrollment.status === 'active' && canCompleteScheme && (
         <div className="mb-6 rounded-2xl border border-gold/20 bg-ivory-2 p-4">

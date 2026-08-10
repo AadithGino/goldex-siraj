@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeCmsHtml } from './htmlSanitize'
+import { formatCmsContentForDisplay, sanitizeCmsHtml } from './htmlSanitize'
 
 describe('sanitizeCmsHtml', () => {
   it('strips script, event handlers, and javascript: URLs', () => {
@@ -21,5 +21,16 @@ describe('sanitizeCmsHtml', () => {
     expect(sanitizeCmsHtml(null)).toBe('')
     expect(sanitizeCmsHtml(undefined)).toBe('')
     expect(sanitizeCmsHtml(12)).toBe('')
+  })
+})
+
+describe('formatCmsContentForDisplay', () => {
+  it('wraps plain text with paragraphs and line breaks', () => {
+    const html = formatCmsContentForDisplay('Line one\nLine two\n\nSecond paragraph')
+    expect(html).toBe('<p>Line one<br>Line two</p><p>Second paragraph</p>')
+  })
+
+  it('preserves existing HTML markup', () => {
+    expect(formatCmsContentForDisplay('<p><strong>Hello</strong></p>')).toBe('<p><strong>Hello</strong></p>')
   })
 })

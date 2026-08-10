@@ -1,18 +1,26 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { POLICY_PAGES, getPolicyLabel } from '@/lib/policyPages'
+import { usePublishedCmsPages } from '@/hooks/useCmsPages'
 import { useContentLang } from '@/hooks/useContentLang'
+import { pickField } from '@/lib/contentLocale'
 import { cn } from '@/lib/utils'
 
-/** Policy links use known slugs + localized labels — no capped CMS list. */
+/** Policy links reflect published CMS pages (footer, checkout, login). */
 export function PolicyLinks({ className, linkClassName, variant = 'inline' }) {
   const { t } = useTranslation('common')
   const lang = useContentLang()
+  const { data, isLoading, isError } = usePublishedCmsPages({ page: 1, limit: 50 })
 
-  const pages = POLICY_PAGES.map((policy) => ({
-    slug: policy.slug,
-    label: getPolicyLabel(policy, lang),
-  }))
+  if (isLoading || isError) return null
+
+  const pages = (data?.data || [])
+    .map((page) => ({
+      slug: page.slug,
+      label: pickField(page, 'title', lang),
+    }))
+    .filter((page) => page.slug && page.label)
+
+  if (!pages.length) return null
 
   if (variant === 'stacked') {
     return (

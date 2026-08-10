@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useCmsPage } from '@/hooks/useCmsPages'
 import { useContentLang } from '@/hooks/useContentLang'
 import { pickField } from '@/lib/contentLocale'
-import { sanitizeCmsHtml } from '@/lib/htmlSanitize'
+import { formatCmsContentForDisplay } from '@/lib/htmlSanitize'
 
 export function CmsPage() {
   const { t } = useTranslation(['account', 'common'])
@@ -33,7 +33,7 @@ export function CmsPage() {
     )
   }
 
-  const html = sanitizeCmsHtml(pickField(page, 'content', lang) || '')
+  const html = formatCmsContentForDisplay(pickField(page, 'content', lang) || '')
 
   return (
     <div className="mx-auto max-w-[1320px] px-4 py-10 sm:px-6">

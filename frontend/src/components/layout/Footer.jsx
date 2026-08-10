@@ -9,7 +9,7 @@ import {
   STORE_COMPLIANCE_EMAIL,
   getStoreLegalName,
 } from '@/lib/storeIdentity'
-import { POLICY_PAGES, getPolicyLabel } from '@/lib/policyPages'
+import { PolicyLinks } from '@/components/legal/PolicyLinks'
 
 export function Footer() {
   const { t } = useTranslation(['nav', 'common'])
@@ -47,15 +47,7 @@ export function Footer() {
 
           <div>
             <p className="text-xs font-black uppercase tracking-[.12em] text-gold">{t('nav:footer.policiesHeading')}</p>
-            <ul className="mt-3 space-y-2 text-sm">
-              {POLICY_PAGES.map((policy) => (
-                <li key={policy.slug}>
-                  <Link to={`/page/${policy.slug}`} className="hover:text-gold">
-                    {getPolicyLabel(policy, lang)}
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <PolicyLinks variant="stacked" className="mt-3" linkClassName="hover:text-gold" />
           </div>
 
           <div>

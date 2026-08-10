@@ -13,7 +13,7 @@ import { hasArabicContent } from '@/lib/contentLocale'
 export function AdminCmsPage() {
   const { canManageCatalog } = useStaffRole()
   const [page, setPage] = useState(1)
-  const { data } = useAdminCmsPages({ page, limit: 25 })
+  const { data, isLoading, error } = useAdminCmsPages({ page, limit: 25 })
   const pages = data?.data || []
   const meta = data?.meta || {}
   const totalPages = Math.max(1, meta.pages || 1)
@@ -22,6 +22,9 @@ export function AdminCmsPage() {
   const [editing, setEditing] = useState(null)
 
   if (!canManageCatalog) return <p className="text-muted">No permission.</p>
+
+  if (isLoading) return <p className="text-muted">Loading CMS pages…</p>
+  if (error) return <p className="text-destructive">Could not load CMS pages: {error.message}</p>
 
   return (
     <div>

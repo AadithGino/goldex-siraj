@@ -5,6 +5,8 @@ import { mapSchemeEnrollment } from '@/lib/schemeAdapters'
 import {
   toInstallmentPayPayload,
   toSchemeCompletePayload,
+  toSchemeEnrollPayload,
+  toSchemeAdminEnrollPayload,
   toSchemePayload,
 } from '@/lib/schemePayload'
 
@@ -56,7 +58,7 @@ export function useMyEnrollment(id) {
 export function useEnrollScheme() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ scheme_id }) => api.post('/customer/schemes/enrollments', { scheme_id })
+    mutationFn: (body) => api.post('/customer/schemes/enrollments', toSchemeEnrollPayload(body))
       .then((row) => ({ ...adaptEnrollment(row), enrollment_id: row.id })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scheme-enrollments'] }),
   })
@@ -151,6 +153,18 @@ export function useAdminSchemeMutations() {
     ),
     onSuccess: invalidate,
   })
+  const updateEnrollmentIdentity = useMutation({
+    mutationFn: ({ enrollmentId, ...body }) => api.patch(
+      `/admin/schemes/enrollments/${enrollmentId}/identity`,
+      body,
+    ),
+    onSuccess: invalidate,
+  })
+  const enrollCustomer = useMutation({
+    mutationFn: (body) => api.post('/admin/schemes/enrollments', toSchemeAdminEnrollPayload(body))
+      .then((row) => adaptEnrollment(row)),
+    onSuccess: invalidate,
+  })
 
-  return { create, update, recordPayment, updateEnrollmentStatus, completeEnrollment }
+  return { create, update, recordPayment, updateEnrollmentStatus, completeEnrollment, updateEnrollmentIdentity, enrollCustomer }
 }

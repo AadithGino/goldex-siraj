@@ -82,8 +82,12 @@ export function BrandPage() {
   return (
     <div className="mx-auto max-w-[1680px] px-4 py-8 sm:px-6">
       {banner && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-gold/20 bg-ivory-2">
-          <img src={banner} alt={brandName} className="aspect-[16/7] w-full object-cover" />
+        <div className="mb-6 overflow-hidden rounded-2xl border border-gold/20 bg-ivory-2 px-3 py-3 sm:px-4">
+          <img
+            src={banner}
+            alt={brandName}
+            className="mx-auto h-auto max-h-55 w-full rounded-xl object-contain sm:max-h-75 lg:max-h-95"
+          />
         </div>
       )}
       <div className="mb-6">

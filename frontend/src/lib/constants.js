@@ -84,7 +84,7 @@ export const SIZE_TYPES = [
 /** Predefined selectable sizes per jewellery type */
 export const SIZE_OPTIONS = {
   ring: ['6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'],
-  necklace: ['14 inch', '16 inch', '18 inch', '20 inch', '22 inch', '24 inch', '30 inch'],
+  necklace: ['14 inch', '16 inch', '18 inch', '20 inch', '22 inch', '24 inch', '26 inch', '28 inch', '30 inch'],
   bangle: ['2.2', '2.4', '2.6', '2.8', '2.10'],
   bracelet: ['6 inch', '6.5 inch', '7 inch', '7.5 inch', '8 inch'],
   earring: ['Single', 'Pair'],

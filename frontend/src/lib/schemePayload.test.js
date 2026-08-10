@@ -13,8 +13,9 @@ describe('toSchemePayload', () => {
       name_ar: 'ذهب',
       description: 'Plan',
       monthly_amount: '100.555',
-      tenure_months: 11,
+      tenure_months: 12,
       bonus_months: 1,
+      benefit_type: 'bonus_months',
       is_active: true,
     })).toEqual({
       name: 'Gold Save',
@@ -22,15 +23,17 @@ describe('toSchemePayload', () => {
       description: 'Plan',
       description_ar: null,
       monthly_amount: 100.56,
-      tenure_months: 11,
+      tenure_months: 12,
       bonus_months: 1,
+      benefit_type: 'bonus_months',
+      benefit_fixed_amount: 0,
       is_active: true,
     })
   })
 
   it('rejects fractional tenure and invalid amounts', () => {
     expect(() => toSchemePayload({
-      name: 'X', monthly_amount: 10, tenure_months: 1.5, bonus_months: 0, is_active: true,
+      name: 'X', monthly_amount: 10, tenure_months: 5, bonus_months: 0, is_active: true,
     })).toThrow(SchemePayloadError)
     expect(() => toSchemePayload({
       name: 'X', monthly_amount: 'abc', tenure_months: 11, bonus_months: 0, is_active: true,

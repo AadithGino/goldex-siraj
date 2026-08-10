@@ -82,6 +82,10 @@ export function mapSchemeEnrollment(row = {}, installmentsInput = null) {
   const bonusMonthsSnapshot = toNumber(
     row.bonus_months_snapshot ?? row.bonus_months ?? row.schemes?.bonus_months
   )
+  const benefitTypeSnapshot = row.benefit_type_snapshot ?? row.benefit_type ?? row.schemes?.benefit_type ?? 'bonus_months'
+  const benefitFixedAmountSnapshot = toNumber(
+    row.benefit_fixed_amount_snapshot ?? row.benefit_fixed_amount ?? row.schemes?.benefit_fixed_amount,
+  )
 
   const progress = computeSchemeProgress(
     {
@@ -103,6 +107,8 @@ export function mapSchemeEnrollment(row = {}, installmentsInput = null) {
     monthly_amount_snapshot: monthlyAmountSnapshot,
     tenure_months_snapshot: tenureMonthsSnapshot,
     bonus_months_snapshot: bonusMonthsSnapshot,
+    benefit_type_snapshot: benefitTypeSnapshot,
+    benefit_fixed_amount_snapshot: benefitFixedAmountSnapshot,
     scheme_installments: installments,
     paid_installments_count: progress.paidCount,
     pending_installments_count: progress.pendingCount,

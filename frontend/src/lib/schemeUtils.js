@@ -75,3 +75,29 @@ export function totalRemainingAmount(installments = [], enrollment) {
   const remaining = (enrollment?.tenure_months || 0) - (enrollment?.installments_paid || 0)
   return remaining * Number(enrollment?.monthly_amount || 0)
 }
+
+export function computeSchemePayoutPreview(enrollment = {}) {
+  const monthly = Number(
+    enrollment.monthly_amount_snapshot ?? enrollment.monthly_amount ?? enrollment.schemes?.monthly_amount ?? 0,
+  )
+  const tenure = Number(
+    enrollment.tenure_months_snapshot ?? enrollment.tenure_months ?? enrollment.schemes?.tenure_months ?? 0,
+  )
+  const benefitType = enrollment.benefit_type_snapshot
+    ?? enrollment.benefit_type
+    ?? enrollment.schemes?.benefit_type
+    ?? 'bonus_months'
+  const fixed = Number(
+    enrollment.benefit_fixed_amount_snapshot
+    ?? enrollment.benefit_fixed_amount
+    ?? enrollment.schemes?.benefit_fixed_amount
+    ?? 0,
+  )
+  const bonus = Number(
+    enrollment.bonus_months_snapshot ?? enrollment.bonus_months ?? enrollment.schemes?.bonus_months ?? 0,
+  )
+  if (benefitType === 'fixed_amount') {
+    return Math.round((monthly * tenure + fixed) * 100) / 100
+  }
+  return Math.round((monthly * (tenure + bonus)) * 100) / 100
+}

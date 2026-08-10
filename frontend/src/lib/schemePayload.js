@@ -35,6 +35,16 @@ function parseWholeMonths(value, label, { min, max, required = true }) {
   return n
 }
 
+const SCHEME_TENURE_OPTIONS = [6, 12]
+
+function parseTenureMonths(value, label) {
+  const n = parseWholeMonths(value, label, { min: 6, max: 12 })
+  if (!SCHEME_TENURE_OPTIONS.includes(n)) {
+    throw new SchemePayloadError(`${label} must be 6 or 12 months`)
+  }
+  return n
+}
+
 /**
  * SchemeFormDialog → API payload (canonical snake_case).
  * Throws SchemePayloadError — never silently coerces invalid input.
@@ -43,14 +53,19 @@ export function toSchemePayload(input = {}) {
   const name = String(input.name ?? '').trim()
   if (!name) throw new SchemePayloadError('Plan name is required')
 
+  const benefitType = input.benefit_type === 'fixed_amount' ? 'fixed_amount' : 'bonus_months'
   const payload = {
     name,
     name_ar: input.name_ar ? String(input.name_ar).trim() : null,
     description: input.description ? String(input.description).trim() : null,
     description_ar: input.description_ar ? String(input.description_ar).trim() : null,
     monthly_amount: parsePositiveMoney(input.monthly_amount, 'Monthly amount'),
-    tenure_months: parseWholeMonths(input.tenure_months, 'Tenure months', { min: 1, max: 120 }),
+    tenure_months: parseTenureMonths(input.tenure_months, 'Tenure months'),
     bonus_months: parseWholeMonths(input.bonus_months, 'Bonus months', { min: 0, max: 24 }),
+    benefit_type: benefitType,
+    benefit_fixed_amount: benefitType === 'fixed_amount'
+      ? parsePositiveMoney(input.benefit_fixed_amount, 'Fixed benefit amount')
+      : 0,
     is_active: input.is_active === true,
   }
 
@@ -90,6 +105,37 @@ export function toInstallmentPayPayload({
     payment_method: method,
     transaction_ref: ref,
     note: note != null && String(note).trim() ? String(note).trim().slice(0, 2000) : null,
+  }
+}
+
+/** Customer enrollment payload */
+export function toSchemeEnrollPayload({ scheme_id, passport_number, id_proof_key, id_proof_url } = {}) {
+  if (!scheme_id) throw new SchemePayloadError('scheme_id is required')
+  const passport = passport_number != null ? String(passport_number).trim() : ''
+  const proof = id_proof_key || id_proof_url
+  if (!passport && !proof) {
+    throw new SchemePayloadError('Upload ID proof or enter passport number')
+  }
+  return {
+    scheme_id,
+    ...(passport ? { passport_number: passport } : {}),
+    ...(id_proof_key ? { id_proof_key } : {}),
+    ...(id_proof_url && !id_proof_key ? { id_proof_url } : {}),
+  }
+}
+
+/** Admin enrollment payload */
+export function toSchemeAdminEnrollPayload({
+  customer_id,
+  scheme_id,
+  passport_number,
+  id_proof_key,
+  id_proof_url,
+} = {}) {
+  if (!customer_id) throw new SchemePayloadError('customer_id is required')
+  return {
+    customer_id,
+    ...toSchemeEnrollPayload({ scheme_id, passport_number, id_proof_key, id_proof_url }),
   }
 }
 

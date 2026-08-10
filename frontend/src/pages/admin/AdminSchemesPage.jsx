@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Pencil, ChevronRight, Search } from 'lucide-react'
+import { Plus, Pencil, ChevronRight, Search, UserPlus } from 'lucide-react'
+import { toast } from 'sonner'
 import { AdminPageHeader } from '@/components/admin/shared/AdminPageHeader'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,8 +10,10 @@ import { Input } from '@/components/ui/input'
 import {
   useAdminSchemes,
   useAdminSchemeEnrollments,
+  useAdminSchemeMutations,
 } from '@/hooks/useSchemes'
 import { SchemeFormDialog } from '@/components/admin/schemes/SchemeFormDialog'
+import { AdminEnrollCustomerDialog } from '@/components/admin/schemes/AdminEnrollCustomerDialog'
 import { formatAED } from '@/lib/pricing'
 import { ENROLLMENT_STATUS, formatSchemeDate, getNextDueInstallment, schemeProgress } from '@/lib/schemeUtils'
 import { useStaffRole } from '@/hooks/useStaffRole'
@@ -27,6 +30,7 @@ export function AdminSchemesPage() {
   const [schemePage, setSchemePage] = useState(1)
   const [search, setSearch] = useState('')
   const { data: schemesResult } = useAdminSchemes({ page: schemePage, limit: PAGE_SIZE })
+  const { data: activeSchemesResult } = useAdminSchemes({ page: 1, limit: 100, status: 'active' })
   const { data: enrollmentsResult } = useAdminSchemeEnrollments({
     page: enrollmentPage,
     limit: PAGE_SIZE,
@@ -37,7 +41,9 @@ export function AdminSchemesPage() {
   const enrollments = enrollmentsResult?.data ?? []
   const enrollmentMeta = enrollmentsResult?.meta
   const [open, setOpen] = useState(false)
+  const [enrollOpen, setEnrollOpen] = useState(false)
   const [editing, setEditing] = useState(null)
+  const { enrollCustomer } = useAdminSchemeMutations()
 
   if (!canViewSchemes) return <p className="text-muted">No permission.</p>
 
@@ -76,8 +82,8 @@ export function AdminSchemesPage() {
         </TabsList>
 
         <TabsContent value="enrollments">
-          <div className="mb-4">
-            <div className="relative max-w-md">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative max-w-md flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <Input
                 value={search}
@@ -86,6 +92,12 @@ export function AdminSchemesPage() {
                 className="pl-9"
               />
             </div>
+            {canManageSchemePlans ? (
+              <Button onClick={() => setEnrollOpen(true)}>
+                <UserPlus className="h-4 w-4" />
+                Enroll customer
+              </Button>
+            ) : null}
           </div>
           <div className="space-y-3">
             {enrollments.map((e) => {
@@ -164,6 +176,16 @@ export function AdminSchemesPage() {
       </Tabs>
 
       <SchemeFormDialog open={open} onOpenChange={setOpen} scheme={editing} />
+      <AdminEnrollCustomerDialog
+        open={enrollOpen}
+        onOpenChange={setEnrollOpen}
+        schemes={activeSchemesResult?.data ?? []}
+        isSubmitting={enrollCustomer.isPending}
+        onConfirm={(body) => enrollCustomer.mutateAsync(body).then((row) => {
+          toast.success('Customer enrolled')
+          return row
+        })}
+      />
     </div>
   )
 }
