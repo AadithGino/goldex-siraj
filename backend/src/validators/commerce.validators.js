@@ -132,7 +132,71 @@ export const couponUpdateSchema = {
 export const schemeEnrollSchema = {
   body: z.object({
     scheme_id: objectId,
-  }).strict(),
+    passport_number: z.string().trim().min(3).max(50).optional(),
+    passportNumber: z.string().trim().min(3).max(50).optional(),
+    id_proof_url: z.string().trim().max(2000).optional(),
+    idProofUrl: z.string().trim().max(2000).optional(),
+    id_proof_key: z.string().trim().max(2000).optional(),
+    idProofKey: z.string().trim().max(2000).optional(),
+  }).strict().superRefine(refineSchemeEnrollIdentity),
+}
+
+export const schemeAdminEnrollSchema = {
+  body: z.object({
+    customer_id: objectId,
+    scheme_id: objectId,
+    passport_number: z.string().trim().min(3).max(50).optional(),
+    passportNumber: z.string().trim().min(3).max(50).optional(),
+    id_proof_url: z.string().trim().max(2000).optional(),
+    idProofUrl: z.string().trim().max(2000).optional(),
+    id_proof_key: z.string().trim().max(2000).optional(),
+    idProofKey: z.string().trim().max(2000).optional(),
+  }).strict().superRefine(refineSchemeEnrollIdentity),
+}
+
+function refineSchemeEnrollIdentity(body, ctx) {
+    const passport = body.passport_number ?? body.passportNumber
+    const proof = body.id_proof_url ?? body.idProofUrl ?? body.id_proof_key ?? body.idProofKey
+    const hasPassport = passport != null && String(passport).trim() !== ''
+    const hasProof = proof != null && String(proof).trim() !== ''
+    if (!hasPassport && !hasProof) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Upload ID proof or enter passport number',
+        path: ['passport_number'],
+      })
+    }
+    if (body.passport_number != null && body.passportNumber != null
+      && String(body.passport_number).trim() !== String(body.passportNumber).trim()) {
+      ctx.addIssue({ code: 'custom', message: 'Conflicting passport_number values', path: ['passport_number'] })
+    }
+    if ((body.id_proof_url != null || body.idProofUrl != null)
+      && (body.id_proof_key != null || body.idProofKey != null)) {
+      try {
+        resolveAliasGroup(body, ['id_proof_url', 'idProofUrl'])
+        resolveAliasGroup(body, ['id_proof_key', 'idProofKey'])
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          for (const issue of error.issues) ctx.addIssue(issue)
+        } else throw error
+      }
+    }
+}
+
+export const schemeEnrollmentIdentitySchema = {
+  params: z.object({ id: objectId }),
+  body: z.object({
+    passport_number: z.string().trim().min(3).max(50).nullable().optional(),
+    passportNumber: z.string().trim().min(3).max(50).nullable().optional(),
+    id_proof_url: z.string().trim().max(2000).nullable().optional(),
+    idProofUrl: z.string().trim().max(2000).nullable().optional(),
+    id_proof_key: z.string().trim().max(2000).nullable().optional(),
+    idProofKey: z.string().trim().max(2000).nullable().optional(),
+  }).strict().superRefine((body, ctx) => {
+    if (!body || Object.keys(body).length === 0) {
+      ctx.addIssue({ code: 'custom', message: 'At least one field is required', path: [] })
+    }
+  }),
 }
 
 const SCHEME_PAY_METHODS = z.enum(['cash', 'bank_transfer', 'card'])
@@ -187,10 +251,14 @@ const schemeBodyFields = {
   descriptionAr: z.string().trim().max(5000).nullable().optional(),
   monthly_amount: z.number().finite().positive().max(1_000_000).optional(),
   monthlyAmount: z.number().finite().positive().max(1_000_000).optional(),
-  tenure_months: z.number().int().min(1).max(120).optional(),
-  tenureMonths: z.number().int().min(1).max(120).optional(),
+  tenure_months: z.union([z.literal(6), z.literal(12)]).optional(),
+  tenureMonths: z.union([z.literal(6), z.literal(12)]).optional(),
   bonus_months: z.number().int().min(0).max(24).optional(),
   bonusMonths: z.number().int().min(0).max(24).optional(),
+  benefit_type: z.enum(['bonus_months', 'fixed_amount']).optional(),
+  benefitType: z.enum(['bonus_months', 'fixed_amount']).optional(),
+  benefit_fixed_amount: z.number().finite().min(0).max(1_000_000).optional(),
+  benefitFixedAmount: z.number().finite().min(0).max(1_000_000).optional(),
   is_active: z.boolean().optional(),
   isActive: z.boolean().optional(),
   terms: z.string().trim().max(10_000).nullable().optional(),
@@ -204,6 +272,8 @@ const schemeAliasGroups = [
   ['monthly_amount', 'monthlyAmount'],
   ['tenure_months', 'tenureMonths'],
   ['bonus_months', 'bonusMonths'],
+  ['benefit_type', 'benefitType'],
+  ['benefit_fixed_amount', 'benefitFixedAmount'],
   ['is_active', 'isActive'],
   ['terms_ar', 'termsAr'],
 ]
@@ -229,6 +299,11 @@ export const schemeCreateBody = schemeBodyBase.superRefine((body, ctx) => {
   }
   if (body.tenure_months == null && body.tenureMonths == null) {
     ctx.addIssue({ code: 'custom', message: 'tenure_months is required', path: ['tenure_months'] })
+  }
+  const benefitType = body.benefit_type ?? body.benefitType ?? 'bonus_months'
+  const fixed = body.benefit_fixed_amount ?? body.benefitFixedAmount
+  if (benefitType === 'fixed_amount' && (fixed == null || Number(fixed) <= 0)) {
+    ctx.addIssue({ code: 'custom', message: 'benefit_fixed_amount is required when benefit_type is fixed_amount', path: ['benefit_fixed_amount'] })
   }
 })
 

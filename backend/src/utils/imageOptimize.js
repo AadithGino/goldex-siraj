@@ -13,6 +13,7 @@ const PRESETS = {
   category: { maxEdge: 800, quality: 78 },
   return: { maxEdge: 1600, quality: 78 },
   certificate: { maxEdge: 2000, quality: 85 },
+  'scheme-id-proof': { maxEdge: 2000, quality: 85 },
 }
 
 /**

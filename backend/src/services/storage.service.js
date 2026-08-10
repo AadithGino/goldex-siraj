@@ -20,6 +20,7 @@ const UPLOAD_KINDS = {
   video: { visibility: 'public', folder: 'product-videos' },
   certificate: { visibility: 'private', folder: 'product-certificates' },
   return: { visibility: 'private', folder: 'return-proof-images' },
+  'scheme-id-proof': { visibility: 'private', folder: 'scheme-id-proof-images' },
 }
 
 const extensions = {

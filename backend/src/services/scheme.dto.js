@@ -11,8 +11,9 @@ const BLOCKED = new Set([
 ])
 
 const MAX_MONTHLY = 1_000_000
-const MAX_TENURE = 120
+const ALLOWED_TENURE_MONTHS = new Set([6, 12])
 const MAX_BONUS = 24
+const BENEFIT_TYPES = new Set(['bonus_months', 'fixed_amount'])
 
 function pickString(body, keys, { max = 2000, allowEmpty = true } = {}) {
   const resolved = resolveAliasGroup(body, keys)
@@ -47,7 +48,7 @@ function pickPositiveMoney(body, keys, { required = false } = {}) {
   return { present: true, value: roundMoney(n) }
 }
 
-function pickWholeMonths(body, keys, { min, max, required = false } = {}) {
+function pickWholeMonths(body, keys, { min, max, required = false, allowedValues = null } = {}) {
   const resolved = resolveAliasGroup(body, keys)
   if (!resolved.present) {
     if (required) throw new AppError(422, 'VALIDATION_ERROR', `${keys[0]} is required`)
@@ -64,7 +65,10 @@ function pickWholeMonths(body, keys, { min, max, required = false } = {}) {
   if (!Number.isInteger(n)) {
     throw new AppError(422, 'VALIDATION_ERROR', `${keys[0]} must be a whole number`)
   }
-  if (n < min || n > max) {
+  if (allowedValues && !allowedValues.has(n)) {
+    throw new AppError(422, 'VALIDATION_ERROR', `${keys[0]} must be one of ${[...allowedValues].join(', ')}`)
+  }
+  if (min != null && max != null && (n < min || n > max)) {
     throw new AppError(422, 'VALIDATION_ERROR', `${keys[0]} must be between ${min} and ${max}`)
   }
   return { present: true, value: n }
@@ -101,7 +105,8 @@ export function toSchemeWriteDto(body, { partial = false } = {}) {
   if (monthly.present) dto.monthlyAmount = monthly.value
 
   const tenure = pickWholeMonths(body, ['tenure_months', 'tenureMonths'], {
-    min: 1, max: MAX_TENURE, required: !partial,
+    required: !partial,
+    allowedValues: ALLOWED_TENURE_MONTHS,
   })
   if (tenure.present) dto.tenureMonths = tenure.value
 
@@ -109,6 +114,28 @@ export function toSchemeWriteDto(body, { partial = false } = {}) {
     min: 0, max: MAX_BONUS, required: false,
   })
   if (bonus.present) dto.bonusMonths = bonus.value
+
+  const benefitTypeGroup = resolveAliasGroup(body, ['benefit_type', 'benefitType'])
+  if (benefitTypeGroup.present) {
+    const benefitType = String(benefitTypeGroup.value || 'bonus_months').trim()
+    if (!BENEFIT_TYPES.has(benefitType)) {
+      throw new AppError(422, 'VALIDATION_ERROR', 'benefit_type must be bonus_months or fixed_amount')
+    }
+    dto.benefitType = benefitType
+  }
+
+  const benefitFixedGroup = resolveAliasGroup(body, ['benefit_fixed_amount', 'benefitFixedAmount'])
+  if (benefitFixedGroup.present) {
+    if (benefitFixedGroup.value == null || benefitFixedGroup.value === '') {
+      dto.benefitFixedAmount = 0
+    } else {
+      const n = Number(benefitFixedGroup.value)
+      if (!Number.isFinite(n) || n < 0 || n > MAX_MONTHLY) {
+        throw new AppError(422, 'VALIDATION_ERROR', 'benefit_fixed_amount must be between 0 and 1000000')
+      }
+      dto.benefitFixedAmount = roundMoney(n)
+    }
+  }
 
   const isActive = resolveAliasGroup(body, ['is_active', 'isActive'])
   if (isActive.present) dto.isActive = Boolean(isActive.value)
@@ -124,6 +151,16 @@ export function toSchemeWriteDto(body, { partial = false } = {}) {
     if (dto.monthlyAmount == null) throw new AppError(422, 'VALIDATION_ERROR', 'monthly_amount is required')
     if (dto.tenureMonths == null) throw new AppError(422, 'VALIDATION_ERROR', 'tenure_months is required')
     if (dto.bonusMonths == null) dto.bonusMonths = 0
+    if (!dto.benefitType) dto.benefitType = 'bonus_months'
+    if (dto.benefitFixedAmount == null) dto.benefitFixedAmount = 0
+    if (dto.benefitType === 'fixed_amount' && !(dto.benefitFixedAmount > 0)) {
+      throw new AppError(422, 'VALIDATION_ERROR', 'benefit_fixed_amount is required when benefit_type is fixed_amount')
+    }
+    if (dto.benefitType === 'bonus_months') {
+      dto.benefitFixedAmount = 0
+    }
+  } else if (dto.benefitType === 'fixed_amount' && dto.benefitFixedAmount != null && !(dto.benefitFixedAmount > 0)) {
+    throw new AppError(422, 'VALIDATION_ERROR', 'benefit_fixed_amount must be greater than 0')
   }
 
   if (!Object.keys(dto).length) {
@@ -208,10 +245,15 @@ export function maskTransactionRef(ref) {
 }
 
 export function computeSchemePayout(enrollment) {
+  const monthly = Number(enrollment.monthlyAmountSnapshot)
+  const tenure = Number(enrollment.tenureMonthsSnapshot)
+  const benefitType = enrollment.benefitTypeSnapshot || 'bonus_months'
+  if (benefitType === 'fixed_amount') {
+    return roundMoney(monthly * tenure + Number(enrollment.benefitFixedAmountSnapshot || 0))
+  }
   return roundMoney(
-    Number(enrollment.monthlyAmountSnapshot)
-    * (Number(enrollment.tenureMonthsSnapshot) + Number(enrollment.bonusMonthsSnapshot || 0)),
+    monthly * (tenure + Number(enrollment.bonusMonthsSnapshot || 0)),
   )
 }
 
-export { MAX_MONTHLY, MAX_TENURE, MAX_BONUS, ALLOWED_PAY_METHODS }
+export { MAX_MONTHLY, ALLOWED_TENURE_MONTHS as MAX_TENURE, MAX_BONUS, ALLOWED_PAY_METHODS }

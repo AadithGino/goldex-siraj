@@ -21,7 +21,8 @@ export async function enrollmentDetail(req, res) {
 }
 
 export async function enroll(req, res) {
-  const enrollment = await service.enroll(req.auth.sub, req.validated.body.scheme_id)
+  const body = req.validated.body
+  const enrollment = await service.enroll(req.auth.sub, body.scheme_id, body)
   await enrollment.populate('schemeId')
   await ok(res, service.serializeEnrollment(enrollment), 201)
 }

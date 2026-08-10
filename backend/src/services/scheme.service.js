@@ -8,6 +8,9 @@ import { dubaiYmd } from '../utils/dubaiTime.js'
 import { roundMoney } from '../utils/money.js'
 import { paginationMeta, parsePagination } from '../utils/pagination.js'
 import { deserialize } from '../utils/serialize.js'
+import { resolveAliasGroup } from '../validators/alias.js'
+import { buildCustomerSearchFilter } from '../utils/customerSearch.js'
+import { canonicalObjectUrl, extractStorageKey, getSignedObjectUrl } from './storage.service.js'
 import * as walletService from './wallet.service.js'
 import {
   computeSchemePayout,
@@ -25,6 +28,36 @@ function computeMaturityAt(startedAt, tenureMonths) {
 function maturityReached(maturityAt) {
   if (!maturityAt) return false
   return dubaiYmd() >= dubaiYmd(new Date(maturityAt))
+}
+
+function resolveEnrollmentIdentity(body = {}) {
+  const passportGroup = resolveAliasGroup(body, ['passport_number', 'passportNumber'])
+  const passportNumber = passportGroup.present && passportGroup.value != null && String(passportGroup.value).trim() !== ''
+    ? String(passportGroup.value).trim().slice(0, 50)
+    : null
+
+  const proofRaw = body.id_proof_url ?? body.idProofUrl ?? body.id_proof_key ?? body.idProofKey
+  let idProofKey = null
+  let idProofUrl = null
+  if (proofRaw != null && String(proofRaw).trim() !== '') {
+    const raw = String(proofRaw).trim()
+    idProofKey = extractStorageKey(raw) || raw
+    idProofUrl = canonicalObjectUrl(idProofKey) || raw
+  }
+
+  return { passportNumber, idProofKey, idProofUrl }
+}
+
+function assertEnrollmentIdentity(identity) {
+  if (!identity.passportNumber && !identity.idProofKey) {
+    throw new AppError(422, 'IDENTITY_REQUIRED', 'Upload ID proof or enter passport number')
+  }
+}
+
+async function signIdProofUrl(enrollmentLike) {
+  const key = enrollmentLike.idProofKey || extractStorageKey(enrollmentLike.idProofUrl)
+  if (!key) return null
+  return getSignedObjectUrl(key)
 }
 
 function sumPaidInstallments(enrollment) {
@@ -88,6 +121,8 @@ function serializeEnrollment(enrollment, { maskRef = false } = {}) {
         monthly_amount: scheme.monthlyAmount,
         tenure_months: scheme.tenureMonths,
         bonus_months: scheme.bonusMonths,
+        benefit_type: scheme.benefitType || 'bonus_months',
+        benefit_fixed_amount: scheme.benefitFixedAmount || 0,
       }
       : String(plain.schemeId),
     customer_id: customer
@@ -101,6 +136,11 @@ function serializeEnrollment(enrollment, { maskRef = false } = {}) {
     monthly_amount_snapshot: plain.monthlyAmountSnapshot,
     tenure_months_snapshot: plain.tenureMonthsSnapshot,
     bonus_months_snapshot: plain.bonusMonthsSnapshot,
+    benefit_type_snapshot: plain.benefitTypeSnapshot || 'bonus_months',
+    benefit_fixed_amount_snapshot: plain.benefitFixedAmountSnapshot || 0,
+    passport_number: plain.passportNumber || null,
+    id_proof_url: plain.idProofUrl || null,
+    id_proof_key: plain.idProofKey || null,
     total_paid: plain.totalPaid,
     payout_amount: plain.payoutAmount ?? null,
     started_at: plain.startedAt,
@@ -196,10 +236,11 @@ export async function listEnrollments(query = {}) {
   }
   if (mapped.search) {
     const { Customer } = await import('../models/auth.models.js')
-    const re = new RegExp(String(mapped.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+    const customerFilter = buildCustomerSearchFilter(mapped.search)
+    const schemeRe = new RegExp(String(mapped.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
     const [customers, schemes] = await Promise.all([
-      Customer.find({ $or: [{ fullName: re }, { phone: re }, { email: re }] }).select('_id').lean(),
-      Scheme.find({ $or: [{ name: re }, { nameAr: re }] }).select('_id').lean(),
+      Customer.find(customerFilter || {}).select('_id').lean(),
+      Scheme.find({ $or: [{ name: schemeRe }, { nameAr: schemeRe }] }).select('_id').lean(),
     ])
     filter.$or = [
       { customerId: { $in: customers.map((row) => row._id) } },
@@ -230,7 +271,14 @@ export async function getEnrollmentForAdmin(id) {
     .populate('customerId', 'fullName phone email')
   if (!enrollment) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
   applyOverdueStatuses(enrollment)
-  return serializeEnrollment(enrollment)
+  const serialized = serializeEnrollment(enrollment)
+  if (serialized.id_proof_key || serialized.id_proof_url) {
+    serialized.id_proof_url = await signIdProofUrl({
+      idProofKey: serialized.id_proof_key,
+      idProofUrl: serialized.id_proof_url,
+    })
+  }
+  return serialized
 }
 
 export async function getEnrollmentForCustomer(customerId, id) {
@@ -241,10 +289,20 @@ export async function getEnrollmentForCustomer(customerId, id) {
   return serializeEnrollment(enrollment, { maskRef: true })
 }
 
-export async function enroll(customerId, schemeId) {
+export async function enroll(customerId, schemeId, identityInput = {}) {
+  if (!mongoose.isValidObjectId(customerId)) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'Customer not found')
   if (!mongoose.isValidObjectId(schemeId)) throw new AppError(404, 'SCHEME_NOT_FOUND', 'Scheme not found')
+
+  const { Customer } = await import('../models/auth.models.js')
+  const customer = await Customer.findById(customerId).select('_id isActive fullName')
+  if (!customer) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'Customer not found')
+  if (!customer.isActive) throw new AppError(422, 'CUSTOMER_INACTIVE', 'Customer account is inactive')
+
   const scheme = await Scheme.findOne({ _id: schemeId, isActive: true })
   if (!scheme) throw new AppError(404, 'SCHEME_NOT_FOUND', 'Scheme not found')
+
+  const identity = resolveEnrollmentIdentity(identityInput)
+  assertEnrollmentIdentity(identity)
 
   const startedAt = new Date()
   const installments = Array.from({ length: scheme.tenureMonths }, (_, index) => ({
@@ -260,12 +318,17 @@ export async function enroll(customerId, schemeId) {
       monthlyAmountSnapshot: roundMoney(scheme.monthlyAmount),
       tenureMonthsSnapshot: scheme.tenureMonths,
       bonusMonthsSnapshot: scheme.bonusMonths || 0,
+      benefitTypeSnapshot: scheme.benefitType || 'bonus_months',
+      benefitFixedAmountSnapshot: scheme.benefitFixedAmount || 0,
+      passportNumber: identity.passportNumber,
+      idProofUrl: identity.idProofUrl,
+      idProofKey: identity.idProofKey,
       startedAt,
       maturityAt: computeMaturityAt(startedAt, scheme.tenureMonths),
       installments,
       statusHistory: [{
         status: 'active',
-        note: 'Enrolled',
+        note: identityInput.enrolled_by_staff ? 'Enrolled by staff' : 'Enrolled',
         changedAt: startedAt,
       }],
     }])
@@ -619,6 +682,34 @@ export async function completeEnrollment(enrollmentId, staffId, { note } = {}) {
   } finally {
     await session.endSession()
   }
+}
+
+export async function updateEnrollmentIdentity(id, input) {
+  if (!mongoose.isValidObjectId(id)) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
+  const enrollment = await SchemeEnrollment.findById(id)
+  if (!enrollment) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
+
+  const identity = resolveEnrollmentIdentity(input)
+  const passportGroup = resolveAliasGroup(input || {}, ['passport_number', 'passportNumber'])
+  const proofPresent = ['id_proof_url', 'idProofUrl', 'id_proof_key', 'idProofKey']
+    .some((key) => input && Object.prototype.hasOwnProperty.call(input, key))
+
+  if (passportGroup.present) {
+    enrollment.passportNumber = identity.passportNumber
+  }
+  if (proofPresent) {
+    enrollment.idProofKey = identity.idProofKey
+    enrollment.idProofUrl = identity.idProofUrl
+  }
+
+  const nextPassport = enrollment.passportNumber
+  const nextProof = enrollment.idProofKey || enrollment.idProofUrl
+  if (!nextPassport && !nextProof) {
+    throw new AppError(422, 'IDENTITY_REQUIRED', 'Upload ID proof or enter passport number')
+  }
+
+  await enrollment.save()
+  return enrollment
 }
 
 export async function updateEnrollment(id, input, staffId) {

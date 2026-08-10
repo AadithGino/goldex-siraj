@@ -10,6 +10,8 @@ import {
   schemeCancelSchema,
   schemeCompleteSchema,
   schemeCreateSchema,
+  schemeAdminEnrollSchema,
+  schemeEnrollmentIdentitySchema,
   schemeListQuerySchema,
   schemeUpdateSchema,
 } from '../../validators/commerce.validators.js'
@@ -26,10 +28,22 @@ router.get(
   validateRequest({ query: enrollmentListQuerySchema }),
   asyncHandler(controller.enrollments),
 )
+router.post(
+  '/enrollments',
+  authorizeStaffRoles('manager'),
+  validateRequest(schemeAdminEnrollSchema),
+  asyncHandler(controller.enrollCustomer),
+)
 router.get(
   '/enrollments/:id',
   validateRequest({ params: enrollmentIdParamSchema }),
   asyncHandler(controller.enrollmentDetail),
+)
+router.patch(
+  '/enrollments/:id/identity',
+  authorizeStaffRoles('manager'),
+  validateRequest(schemeEnrollmentIdentitySchema),
+  asyncHandler(controller.updateEnrollmentIdentity),
 )
 router.patch(
   '/enrollments/:id',

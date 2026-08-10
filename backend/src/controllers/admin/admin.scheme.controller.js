@@ -28,6 +28,26 @@ export async function enrollmentDetail(req, res) {
   await ok(res, await service.getEnrollmentForAdmin(req.validated.params.id))
 }
 
+export async function enrollCustomer(req, res) {
+  const body = req.validated.body
+  const enrollment = await service.enroll(
+    body.customer_id,
+    body.scheme_id,
+    { ...body, enrolled_by_staff: true },
+  )
+  await ok(res, await service.getEnrollmentForAdmin(enrollment.id), 201)
+}
+
+export async function updateEnrollmentIdentity(req, res) {
+  const enrollment = await service.updateEnrollmentIdentity(
+    req.validated.params.id,
+    req.validated.body,
+  )
+  await enrollment.populate('schemeId')
+  await enrollment.populate('customerId', 'fullName phone email')
+  await ok(res, await service.getEnrollmentForAdmin(enrollment.id))
+}
+
 export async function updateEnrollment(req, res) {
   await ok(res, serialize(await service.updateEnrollment(
     req.validated.params.id,

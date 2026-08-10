@@ -13,6 +13,8 @@ let customer
 let manager
 let scheme
 
+const TEST_IDENTITY = { passport_number: 'AB1234567' }
+
 beforeAll(async () => {
   mongoServer = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } })
   await mongoose.connect(mongoServer.getUri('goldex-scheme-test'))
@@ -65,7 +67,7 @@ describe('gold scheme maturity safety', () => {
       bonusMonths: 0,
       isActive: true,
     })
-    const enrollment = await schemeService.enroll(customer.id, longScheme.id)
+    const enrollment = await schemeService.enroll(customer.id, longScheme.id, TEST_IDENTITY)
     // Align to a known Jan 31 start by rewriting with calendar helper (same as service)
     const startedAt = new Date(Date.UTC(2026, 0, 31, 12, 0, 0))
     enrollment.startedAt = startedAt
@@ -82,7 +84,7 @@ describe('gold scheme maturity safety', () => {
   })
 
   it('keeps enrollment active when all installments are paid before maturity', async () => {
-    let enrollment = await schemeService.enroll(customer.id, scheme.id)
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     enrollment = await payAll(enrollment, manager.id)
     expect(enrollment.status).toBe('active')
     expect(enrollment.completedAt).toBeFalsy()
@@ -93,7 +95,7 @@ describe('gold scheme maturity safety', () => {
   })
 
   it('completes with one payout after maturity and is idempotent under concurrency', async () => {
-    let enrollment = await schemeService.enroll(customer.id, scheme.id)
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     enrollment = await payAll(enrollment, manager.id)
     await SchemeEnrollment.updateOne(
       { _id: enrollment.id },
@@ -112,7 +114,7 @@ describe('gold scheme maturity safety', () => {
   })
 
   it('cancels unpaid future installments on enrollment cancel', async () => {
-    const enrollment = await schemeService.enroll(customer.id, scheme.id)
+    const enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     await schemeService.recordInstallment(enrollment.id, enrollment.installments[0].id, {
       amount: enrollment.installments[0].amount,
       payment_method: 'cash',
@@ -125,7 +127,7 @@ describe('gold scheme maturity safety', () => {
   })
 
   it('rejects completion when any installment is cancelled (not paid)', async () => {
-    let enrollment = await schemeService.enroll(customer.id, scheme.id)
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     await schemeService.recordInstallment(enrollment.id, enrollment.installments[0].id, {
       amount: enrollment.installments[0].amount,
       payment_method: 'cash',

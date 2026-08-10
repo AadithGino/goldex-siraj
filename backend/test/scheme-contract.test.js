@@ -20,6 +20,8 @@ let customer
 let otherCustomer
 let manager
 
+const TEST_IDENTITY = { passport_number: 'AB1234567' }
+
 function cookieHeader(jar) {
   return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ')
 }
@@ -76,7 +78,7 @@ describe('Phase 22.6 scheme create/update contract', () => {
       description: 'Monthly plan',
       description_ar: null,
       monthly_amount: 100,
-      tenure_months: 11,
+      tenure_months: 12,
       bonus_months: 1,
       is_active: true,
     }
@@ -87,7 +89,7 @@ describe('Phase 22.6 scheme create/update contract', () => {
     expect(create.status).toBe(201)
     expect(create.body.data.name).toBe('Gold Save')
     expect(create.body.data.monthly_amount).toBe(100)
-    expect(create.body.data.tenure_months).toBe(11)
+    expect(create.body.data.tenure_months).toBe(12)
     expect(create.body.data.bonus_months).toBe(1)
 
     const id = create.body.data.id
@@ -113,7 +115,7 @@ describe('Phase 22.6 scheme create/update contract', () => {
     const scheme = await Scheme.create({
       name: 'Snap', monthlyAmount: 50, tenureMonths: 3, bonusMonths: 1, isActive: true,
     })
-    const enrollment = await schemeService.enroll(customer.id, scheme.id)
+    const enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     expect(enrollment.monthlyAmountSnapshot).toBe(50)
     expect(enrollment.tenureMonthsSnapshot).toBe(3)
     expect(enrollment.bonusMonthsSnapshot).toBe(1)
@@ -138,7 +140,7 @@ describe('Phase 22.6 installment pay contract', () => {
     const scheme = await Scheme.create({
       name: 'Pay Plan', monthlyAmount: 100, tenureMonths: 2, bonusMonths: 0, isActive: true,
     })
-    return schemeService.enroll(customer.id, scheme.id)
+    return schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
   }
 
   it('rejects legacy payment_method-only body without amount (contract mismatch guard)', async () => {
@@ -347,9 +349,9 @@ describe('Phase 22.6 enrollment concurrency and ownership', () => {
 
     const results = await Promise.allSettled([
       request(app).post('/api/v1/customer/schemes/enrollments').set('Cookie', customerCookie)
-        .send({ scheme_id: scheme.id }),
+        .send({ scheme_id: scheme.id, passport_number: 'AB1234567' }),
       request(app).post('/api/v1/customer/schemes/enrollments').set('Cookie', customerCookie)
-        .send({ scheme_id: scheme.id }),
+        .send({ scheme_id: scheme.id, passport_number: 'AB1234567' }),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled').map((r) => r.value)
     const created = fulfilled.filter((r) => r.status === 201)
@@ -364,8 +366,8 @@ describe('Phase 22.6 enrollment concurrency and ownership', () => {
     const scheme = await Scheme.create({
       name: 'Own', monthlyAmount: 10, tenureMonths: 1, bonusMonths: 0, isActive: true,
     })
-    const mine = await schemeService.enroll(customer.id, scheme.id)
-    const theirs = await schemeService.enroll(otherCustomer.id, scheme.id)
+    const mine = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
+    const theirs = await schemeService.enroll(otherCustomer.id, scheme.id, TEST_IDENTITY)
 
     const forbidden = await request(app)
       .get(`/api/v1/customer/schemes/enrollments/${theirs.id}`)
@@ -404,7 +406,7 @@ describe('Phase 22.6 completion and cancellation', () => {
     const scheme = await Scheme.create({
       name: 'Done', monthlyAmount: 100, tenureMonths: 2, bonusMonths: 1, isActive: true,
     })
-    let enrollment = await schemeService.enroll(customer.id, scheme.id)
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
 
     const early = await request(app)
       .post(`/api/v1/admin/schemes/enrollments/${enrollment.id}/complete`)
@@ -457,7 +459,7 @@ describe('Phase 22.6 completion and cancellation', () => {
     const scheme = await Scheme.create({
       name: 'Cancel', monthlyAmount: 80, tenureMonths: 2, bonusMonths: 0, isActive: true,
     })
-    let enrollment = await schemeService.enroll(customer.id, scheme.id)
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     await schemeService.recordInstallment(enrollment.id, enrollment.installments[0].id, {
       amount: 80,
       payment_method: 'cash',
@@ -479,7 +481,7 @@ describe('Phase 22.6 completion and cancellation', () => {
     const scheme2 = await Scheme.create({
       name: 'Done2', monthlyAmount: 10, tenureMonths: 1, bonusMonths: 0, isActive: true,
     })
-    let done = await schemeService.enroll(customer.id, scheme2.id)
+    let done = await schemeService.enroll(customer.id, scheme2.id, TEST_IDENTITY)
     await schemeService.recordInstallment(done.id, done.installments[0].id, {
       amount: 10, payment_method: 'cash',
     }, manager.id)
@@ -492,5 +494,70 @@ describe('Phase 22.6 completion and cancellation', () => {
       .send({ status: 'cancelled', reason: 'nope' })
     expect(refuse.status).toBe(409)
     expect(refuse.body.error.code).toBe('CANNOT_CANCEL_COMPLETED')
+  })
+})
+
+describe('Admin customer enrollment', () => {
+  it('enrolls a customer from admin with identity; rejects duplicate and inactive customer', async () => {
+    const scheme = await Scheme.create({
+      name: 'Admin Enroll Plan',
+      monthlyAmount: 75,
+      tenureMonths: 6,
+      bonusMonths: 0,
+      isActive: true,
+    })
+
+    const enroll = await request(app)
+      .post('/api/v1/admin/schemes/enrollments')
+      .set('Cookie', staffCookie)
+      .send({
+        customer_id: customer.id,
+        scheme_id: scheme.id,
+        passport_number: 'XY9876543',
+      })
+    expect(enroll.status).toBe(201)
+    expect(enroll.body.data.customer_id.full_name).toBe('Scheme Buyer')
+    expect(enroll.body.data.scheme_id.name).toBe('Admin Enroll Plan')
+    expect(enroll.body.data.passport_number).toBe('XY9876543')
+    expect(enroll.body.data.status).toBe('active')
+
+    const duplicate = await request(app)
+      .post('/api/v1/admin/schemes/enrollments')
+      .set('Cookie', staffCookie)
+      .send({
+        customer_id: customer.id,
+        scheme_id: scheme.id,
+        passport_number: 'XY9876543',
+      })
+    expect(duplicate.status).toBe(409)
+    expect(duplicate.body.error.code).toBe('ALREADY_ENROLLED')
+
+    await Customer.updateOne({ _id: otherCustomer.id }, { $set: { isActive: false } })
+    const inactive = await request(app)
+      .post('/api/v1/admin/schemes/enrollments')
+      .set('Cookie', staffCookie)
+      .send({
+        customer_id: otherCustomer.id,
+        scheme_id: scheme.id,
+        passport_number: 'INACTIVE1',
+      })
+    expect(inactive.status).toBe(422)
+    expect(inactive.body.error.code).toBe('CUSTOMER_INACTIVE')
+  })
+
+  it('fuzzy customer search matches phone digits and name', async () => {
+    const byName = await request(app)
+      .get('/api/v1/admin/customers')
+      .set('Cookie', staffCookie)
+      .query({ search: 'scheme buy', limit: 10 })
+    expect(byName.status).toBe(200)
+    expect(byName.body.data.some((row) => row.id === customer.id)).toBe(true)
+
+    const byPhone = await request(app)
+      .get('/api/v1/admin/customers')
+      .set('Cookie', staffCookie)
+      .query({ search: '501 888 001', limit: 10 })
+    expect(byPhone.status).toBe(200)
+    expect(byPhone.body.data.some((row) => row.id === customer.id)).toBe(true)
   })
 })

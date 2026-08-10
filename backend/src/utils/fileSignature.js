@@ -34,6 +34,7 @@ const KIND_ALLOWED = {
   category: new Set(['image/jpeg', 'image/png', 'image/webp']),
   return: new Set(['image/jpeg', 'image/png', 'image/webp']),
   certificate: new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
+  'scheme-id-proof': new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
 }
 
 async function assertDecodableImage(buffer) {

@@ -13,17 +13,12 @@ import {
   mergeCouponState,
   toCouponWriteDto,
 } from './coupon.dto.js'
+import { buildCustomerSearchFilter } from '../utils/customerSearch.js'
 
 export async function listCustomers(query = {}) {
   const filter = {}
-  if (query.search) {
-    const re = new RegExp(String(query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-    filter.$or = [
-      { fullName: re },
-      { email: re },
-      { phone: re },
-    ]
-  }
+  const searchFilter = buildCustomerSearchFilter(query.search)
+  if (searchFilter) Object.assign(filter, searchFilter)
   const status = query.status || query.is_active
   if (status === 'active' || status === true || status === 'true') filter.isActive = true
   if (status === 'inactive' || status === false || status === 'false') filter.isActive = false
