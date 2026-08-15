@@ -3,7 +3,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server'
 import mongoose from 'mongoose'
 import { serialize } from '../src/utils/serialize.js'
 import { Staff } from '../src/models/auth.models.js'
-import { GoldRate, StoneRate } from '../src/models/rate.models.js'
+import { GoldBuybackRate, GoldRate, StoneRate } from '../src/models/rate.models.js'
 import { hashPassword } from '../src/services/auth.service.js'
 import * as rateService from '../src/services/rate.service.js'
 
@@ -66,6 +66,24 @@ describe('rate list API contract', () => {
       },
     })
     expect(gold[0]).not.toHaveProperty('effective_date')
+
+    const buyback = serialize(await rateService.listGoldBuybackRates())
+    expect(buyback).toEqual([])
+
+    await GoldBuybackRate.create({
+      purity: '22k',
+      ratePerGram: 230,
+      effectiveAt: new Date('2026-07-20T10:00:00.000Z'),
+      isCurrent: true,
+      createdBy: staff.id,
+    })
+    const buybackRows = serialize(await rateService.listGoldBuybackRates())
+    expect(buybackRows[0]).toMatchObject({
+      purity: '22k',
+      rate_per_gram: 230,
+      is_current: true,
+      effective_at: '2026-07-20T10:00:00.000Z',
+    })
 
     expect(stone[0]).toMatchObject({
       stone_type: 'diamond',

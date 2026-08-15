@@ -12,6 +12,8 @@ import { applyStockDelta } from './inventory.service.js'
 import { calculateCartTotals, getPriceBreakup, validateCoupon } from './pricing.service.js'
 import { allocatePaidAmounts } from './refund.service.js'
 import * as walletService from './wallet.service.js'
+import { createPaymobIntention, buildPaymobSpecialReference, getPaymobConfig, inquirePaymobTransaction, isPaymobPendingFlag, isPaymobSuccessFlag, paymobTransactionBelongsToOrder, resolveGoldexOrderId, verifyPaymobRedirectHmac } from './paymob.service.js'
+import { logger } from '../config/logger.js'
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -202,10 +204,22 @@ export async function placeOrder(customerId, input) {
   if (!idempotencyKey) throw new AppError(422, 'IDEMPOTENCY_REQUIRED', 'Idempotency key is required')
   const prior = await Order.findOne({ customerId, idempotencyKey })
   if (prior) return prior
-  const paymentMethod = input.payment_method === 'cod' ? 'cod' : 'manual'
+  const paymentMethod = input.payment_method === 'cod'
+    ? 'cod'
+    : input.payment_method === 'online'
+      ? 'online'
+      : 'manual'
   const settings = await StoreSetting.findOne({ singleton: 'default' })
   if (paymentMethod === 'cod' && settings && !settings.codEnabled) throw new AppError(409, 'COD_DISABLED', 'Cash on delivery is unavailable')
   if (paymentMethod === 'manual' && settings && !settings.bankTransferEnabled) throw new AppError(409, 'BANK_TRANSFER_DISABLED', 'Bank transfer is unavailable')
+  if (paymentMethod === 'online') {
+    if (settings && !settings.onlinePaymentEnabled) {
+      throw new AppError(409, 'ONLINE_PAYMENT_DISABLED', 'Online payment is unavailable')
+    }
+    if (!getPaymobConfig().isConfigured) {
+      throw new AppError(503, 'PAYMOB_NOT_CONFIGURED', 'Online payment is not configured')
+    }
+  }
 
   const maxAttempts = 5
   let lastError
@@ -259,6 +273,11 @@ export async function placeOrder(customerId, input) {
           orderNumber,
           status: 'placed',
           paymentMethod,
+          paymentMode: paymentMethod === 'cod'
+            ? 'cash'
+            : paymentMethod === 'online'
+              ? 'card'
+              : (input.payment_mode || input.paymentMode || 'bank_transfer'),
           paymentStatus: paymentMethod === 'cod' ? 'cod_pending' : 'pending',
           pricingMode: paymentMethod === 'cod' ? 'cod_delivery' : 'manual_locked',
           ...orderTotalsPayload(totals),
@@ -300,6 +319,16 @@ export async function placeOrder(customerId, input) {
           }, { session })
         }
         await CartItem.deleteMany({ customerId }, { session })
+        if (paymentMethod === 'online') {
+          const customer = await Customer.findById(customerId).session(session)
+          const specialReference = buildPaymobSpecialReference(order.id)
+          const paymob = await createPaymobIntention({ order, customer, specialReference })
+          order.paymobIntentionId = paymob.intentionId
+          order.paymobOrderId = paymob.paymobOrderId
+          order.paymobSpecialReference = paymob.specialReference
+          await order.save({ session })
+          order.checkoutUrl = paymob.checkoutUrl
+        }
         return order
       })
     } catch (error) {
@@ -368,7 +397,9 @@ async function collectPayment(orderId, staffId, mode, input, deliver) {
       if (['cancelled', 'returned'].includes(order.status)) throw new AppError(409, 'ORDER_CLOSED', 'Closed order cannot be paid')
       if (deliver && order.paymentMethod !== 'cod') throw new AppError(409, 'NOT_COD_ORDER', 'This is not a COD order')
       if (deliver && order.status !== 'shipped') throw new AppError(409, 'ORDER_NOT_AT_HANDOVER', 'Order must be shipped before COD handover')
-      if (!deliver && order.paymentMethod !== 'manual') throw new AppError(409, 'NOT_MANUAL_ORDER', 'Use COD handover for this order')
+      if (!deliver && order.paymentMethod !== 'manual') {
+        throw new AppError(409, 'NOT_MANUAL_ORDER', 'Use COD handover for this order')
+      }
 
       // COD handover: live reprice. Manual payment: preserve placement snapshots.
       let totals
@@ -675,4 +706,180 @@ export async function cancelOrder(orderId, staffId, note, { session: externalSes
   } finally {
     await session.endSession()
   }
+}
+
+export async function applyOnlinePaymentFromProvider(orderId, { transactionId, amount, payload = {} }) {
+  const session = await mongoose.startSession()
+  try {
+    return await session.withTransaction(async () => {
+      const order = await Order.findById(orderId).session(session)
+      if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+      if (order.paymentStatus === 'paid') return order
+      if (order.paymentMethod !== 'online') {
+        throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
+      }
+      if (['cancelled', 'returned'].includes(order.status)) {
+        throw new AppError(409, 'ORDER_CLOSED', 'Closed order cannot be paid')
+      }
+
+      const expectedAmount = roundMoney(order.amountDue)
+      const collectedAmount = roundMoney(Number(amount))
+      if (!Number.isFinite(collectedAmount) || collectedAmount <= 0) {
+        throw new AppError(422, 'INVALID_AMOUNT', 'Payment amount is invalid')
+      }
+      if (Math.abs(collectedAmount - expectedAmount) > 0.05) {
+        throw new AppError(409, 'AMOUNT_MISMATCH', `Payment amount must be ${expectedAmount.toFixed(2)}`, {
+          expected_amount: expectedAmount,
+          collected_amount: collectedAmount,
+        })
+      }
+
+      const invoiceNumber = order.invoiceNumber || await nextSequence(`invoice-${new Date().getUTCFullYear()}`, 'INV', session)
+      if (order.finalTotal == null) order.finalTotal = roundMoney(Number(order.total || 0))
+
+      Object.assign(order, {
+        amountDue: 0,
+        paymentMode: 'card',
+        paymentStatus: 'paid',
+        invoiceNumber,
+        finalizedAt: order.finalizedAt || new Date(),
+        paidAt: new Date(),
+        paymentCollection: {
+          amount: collectedAmount,
+          expectedAmount,
+          currency: 'AED',
+          transactionRef: String(transactionId),
+          note: 'Paymob online payment',
+          verifiedAt: new Date(),
+        },
+      })
+      allocatePaidAmounts(order)
+      if (order.status === 'placed') {
+        order.status = 'confirmed'
+        order.statusHistory.push({ status: 'confirmed', note: 'Online payment received via Paymob' })
+      }
+
+      const eventId = `paymob:${transactionId}`
+      try {
+        await PaymentEvent.create([{
+          orderId: order.id,
+          provider: 'paymob',
+          eventType: 'payment_captured',
+          transactionId: eventId,
+          amount: collectedAmount,
+          currency: 'AED',
+          verified: true,
+          payload: {
+            pricing_mode: order.pricingMode,
+            expected_amount: expectedAmount,
+            collected_amount: collectedAmount,
+            paymob: payload,
+          },
+          processedAt: new Date(),
+        }], { session })
+      } catch (error) {
+        if (error?.code !== 11000 && error?.cause?.code !== 11000) throw error
+      }
+      await order.save({ session })
+      return order
+    })
+  } finally {
+    await session.endSession()
+  }
+}
+
+export async function createPaymobCheckoutForOrder(customerId, orderId) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  if (order.paymentMethod !== 'online') throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
+  if (order.paymentStatus === 'paid') throw new AppError(409, 'ORDER_ALREADY_PAID', 'Order is already paid')
+  if (!getPaymobConfig().isConfigured) throw new AppError(503, 'PAYMOB_NOT_CONFIGURED', 'Online payment is not configured')
+
+  const customer = await Customer.findById(customerId)
+  const specialReference = buildPaymobSpecialReference(order.id)
+  const paymob = await createPaymobIntention({ order, customer, specialReference })
+  order.paymobIntentionId = paymob.intentionId
+  order.paymobOrderId = paymob.paymobOrderId
+  order.paymobSpecialReference = paymob.specialReference
+  await order.save()
+  return { checkout_url: paymob.checkoutUrl }
+}
+
+/**
+ * Confirm online payment from Paymob browser redirect query params
+ * (fallback when the server webhook was delayed or missed).
+ * If redirect HMAC fails (common when query parsers mangle `created_at`), inquire Paymob directly.
+ */
+export async function confirmPaymobRedirectPayment(customerId, orderId, query = {}) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  if (order.paymentStatus === 'paid') return order
+  if (order.paymentMethod !== 'online') {
+    throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
+  }
+
+  const hmacOk = verifyPaymobRedirectHmac(query)
+  let txn = null
+  let source = 'redirect'
+
+  if (hmacOk) {
+    const success = isPaymobSuccessFlag(query.success) && !isPaymobPendingFlag(query.pending)
+    if (!success) {
+      throw new AppError(409, 'PAYMENT_NOT_SUCCESSFUL', 'Card payment was not successful')
+    }
+
+    const rawRef = query.merchant_order_id || query.special_reference || ''
+    const resolvedId = resolveGoldexOrderId(rawRef)
+    if (resolvedId && resolvedId !== String(order.id)) {
+      throw new AppError(409, 'ORDER_MISMATCH', 'Payment confirmation does not match this order')
+    }
+
+    const transactionId = query.id
+    if (!transactionId) throw new AppError(422, 'TRANSACTION_REQUIRED', 'Missing Paymob transaction id')
+
+    const amountCents = Number(query.amount_cents)
+    if (!Number.isFinite(amountCents)) throw new AppError(422, 'INVALID_AMOUNT', 'Missing payment amount')
+
+    return applyOnlinePaymentFromProvider(order.id, {
+      transactionId: String(transactionId),
+      amount: amountCents / 100,
+      payload: { source, ...query },
+    })
+  }
+
+  logger.warn({
+    orderId: String(order.id),
+    queryKeys: Object.keys(query || {}),
+    hasHmac: Boolean(query?.hmac),
+    createdAtSample: String(query?.created_at || '').slice(0, 40),
+  }, 'Paymob redirect HMAC failed; trying transaction inquiry')
+
+  const inquiredByMerchantRef = Boolean(order.paymobSpecialReference)
+  txn = await inquirePaymobTransaction({
+    transactionId: query.id || null,
+    merchantOrderId: order.paymobSpecialReference || query.merchant_order_id || null,
+    paymobOrderId: order.paymobOrderId || query.order_id || query.order || null,
+  })
+
+  if (!txn) {
+    throw new AppError(400, 'PAYMOB_HMAC_INVALID', 'Payment confirmation signature is invalid')
+  }
+
+  if (!paymobTransactionBelongsToOrder(txn, order, { inquiredByMerchantRef })) {
+    throw new AppError(409, 'ORDER_MISMATCH', 'Payment confirmation does not match this order')
+  }
+
+  const success = isPaymobSuccessFlag(txn.success) && !isPaymobPendingFlag(txn.pending)
+  if (!success) {
+    throw new AppError(409, 'PAYMENT_NOT_SUCCESSFUL', 'Card payment was not successful')
+  }
+
+  const amountCents = Number(txn.amount_cents)
+  if (!Number.isFinite(amountCents)) throw new AppError(422, 'INVALID_AMOUNT', 'Missing payment amount')
+
+  return applyOnlinePaymentFromProvider(order.id, {
+    transactionId: String(txn.id),
+    amount: amountCents / 100,
+    payload: { source: 'inquiry', redirect: query, transaction: txn },
+  })
 }

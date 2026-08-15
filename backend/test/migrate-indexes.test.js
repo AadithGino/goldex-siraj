@@ -9,7 +9,7 @@ import {
   CartItem, WishlistItem, Coupon, Order, WalletAccount, WalletTransaction,
   CouponCustomerUsage, CouponRedemption, PaymentEvent, ReturnRequest, Review,
 } from '../src/models/commerce.models.js'
-import { GoldRate, StoneRate, StockMovement } from '../src/models/rate.models.js'
+import { GoldBuybackRate, GoldRate, StoneRate, StockMovement } from '../src/models/rate.models.js'
 import { PendingUpload } from '../src/models/upload.models.js'
 import { Counter } from '../src/models/audit.models.js'
 import { Scheme, SchemeEnrollment, SchemePaymentReference } from '../src/models/scheme.models.js'
@@ -64,7 +64,7 @@ describe('migrate-indexes manifest vs synced schemas', () => {
     StoreSetting, TaxSetting, Category, Brand, Product, Variant, ProductImage, CmsPage,
     CartItem, WishlistItem, Coupon, Order, WalletAccount, WalletTransaction,
     CouponCustomerUsage, CouponRedemption, PaymentEvent, ReturnRequest, Review,
-    GoldRate, StoneRate, StockMovement, PendingUpload, Counter,
+    GoldBuybackRate, GoldRate, StoneRate, StockMovement, PendingUpload, Counter,
     Scheme, SchemeEnrollment, SchemePaymentReference,
   ]
 

@@ -5,7 +5,27 @@ import { toCustomerOrderDto } from '../../utils/customerOrderDto.js'
 export async function place(req, res) {
   const order = await orderService.placeOrder(req.auth.sub, req.validated?.body || req.body)
   const enriched = await orderService.getCustomerOrder(req.auth.sub, order.id)
-  await ok(res, toCustomerOrderDto(enriched.order, { returns: enriched.order.returns || [], displayImageByProductId: enriched.displayImageByProductId }), 201)
+  const dto = toCustomerOrderDto(enriched.order, { returns: enriched.order.returns || [], displayImageByProductId: enriched.displayImageByProductId })
+  if (order.checkoutUrl) dto.checkout_url = order.checkoutUrl
+  await ok(res, dto, 201)
+}
+
+export async function paymobCheckout(req, res) {
+  const result = await orderService.createPaymobCheckoutForOrder(req.auth.sub, req.params.id)
+  await ok(res, result)
+}
+
+export async function paymobConfirm(req, res) {
+  const order = await orderService.confirmPaymobRedirectPayment(
+    req.auth.sub,
+    req.params.id,
+    req.validated?.body || req.body || {},
+  )
+  const enriched = await orderService.getCustomerOrder(req.auth.sub, order.id)
+  await ok(res, toCustomerOrderDto(enriched.order, {
+    returns: enriched.order.returns || [],
+    displayImageByProductId: enriched.displayImageByProductId,
+  }))
 }
 
 export async function list(req, res) {

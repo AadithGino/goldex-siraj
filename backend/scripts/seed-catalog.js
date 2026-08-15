@@ -1,7 +1,7 @@
 import { connectDatabase, disconnectDatabase } from '../src/config/database.js'
 import mongoose from 'mongoose'
 import { Brand, Category, Product, ProductImage, ProductStone, StoreSetting, TaxSetting, Variant } from '../src/models/catalog.models.js'
-import { GoldRate, StoneRate } from '../src/models/rate.models.js'
+import { GoldBuybackRate, GoldRate, StoneRate } from '../src/models/rate.models.js'
 
 const image = (path) => `https://s7ap1.scene7.com/is/image/malabargroup/mgdsite/products/permanent/india/gold%20ornaments/${path}?fmt=webp-alpha&wid=400&hei=400`
 const stockQty = Math.max(Number(process.env.SEED_STOCK_QTY || 5), 0)
@@ -165,6 +165,12 @@ function validateSeedData() {
 async function seedRateCards() {
   for (const rate of goldRates) {
     await GoldRate.findOneAndUpdate({ purity: rate.purity, isCurrent: true }, { $set: { ratePerGram: rate.ratePerGram, effectiveAt: new Date() } }, { upsert: true, new: true, runValidators: true })
+    const buyback = Number((rate.ratePerGram * 0.92).toFixed(2))
+    await GoldBuybackRate.findOneAndUpdate(
+      { purity: rate.purity, isCurrent: true },
+      { $set: { ratePerGram: buyback, effectiveAt: new Date() } },
+      { upsert: true, new: true, runValidators: true },
+    )
   }
   const rateMap = new Map()
   for (const rate of stoneRates) {

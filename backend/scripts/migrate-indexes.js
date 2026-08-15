@@ -128,6 +128,20 @@ export const INDEX_SPECS = [
     },
   },
   {
+    collection: 'goldbuybackrates',
+    keys: { purity: 1, isCurrent: 1 },
+    options: {
+      unique: true,
+      name: 'goldbuybackrates_current_unique',
+      partialFilterExpression: { isCurrent: true },
+    },
+    duplicateCheck: {
+      collection: 'goldbuybackrates',
+      match: { isCurrent: true },
+      group: { purity: '$purity' },
+    },
+  },
+  {
     collection: 'stonerates',
     keys: { stoneType: 1, grade: 1, unit: 1, isCurrent: 1 },
     options: {

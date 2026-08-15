@@ -68,6 +68,42 @@ describe('return proof upload association', () => {
   }, 30_000)
 })
 
+describe('customer media presign', () => {
+  it('issues a presign ticket for sell invoice uploads', async () => {
+    const { jar } = await loginCustomer('+971509999002')
+
+    const badKind = await request(app)
+      .post('/api/v1/customer/media/presign')
+      .set('Cookie', cookieHeader(jar))
+      .send({ kind: 'product', content_type: 'image/png', content_length: 100 })
+      .expect(422)
+    expect(badKind.body.error).toBeTruthy()
+
+    const badMime = await request(app)
+      .post('/api/v1/customer/media/presign')
+      .set('Cookie', cookieHeader(jar))
+      .send({ kind: 'custom-jewellery', content_type: 'application/pdf', content_length: 100 })
+      .expect(415)
+    expect(badMime.body.error.code).toMatch(/INVALID_FILE/)
+
+    const okRes = await request(app)
+      .post('/api/v1/customer/media/presign')
+      .set('Cookie', cookieHeader(jar))
+      .send({ kind: 'sell-invoice', content_type: 'application/pdf', content_length: 2048 })
+      .expect(200)
+
+    expect(['proxy', 's3']).toContain(okRes.body.data.mode)
+    expect(okRes.body.data.content_type).toBe('application/pdf')
+    if (okRes.body.data.mode === 'proxy') {
+      expect(okRes.body.data.upload_path).toBe('/customer/media/sell-invoice')
+    } else {
+      expect(okRes.body.data.key).toMatch(/sell-invoice-files\//)
+      expect(okRes.body.data.upload_url).toMatch(/^https?:\/\//)
+      expect(okRes.body.data.headers?.['content-type']).toBe('application/pdf')
+    }
+  }, 30_000)
+})
+
 describe('health ready', () => {
   it('reports mongo + transaction checks when replica set is available', async () => {
     const res = await request(app).get('/health/ready')

@@ -33,8 +33,28 @@ const KIND_ALLOWED = {
   banner: new Set(['image/jpeg', 'image/png', 'image/webp']),
   category: new Set(['image/jpeg', 'image/png', 'image/webp']),
   return: new Set(['image/jpeg', 'image/png', 'image/webp']),
+  'custom-jewellery': new Set(['image/jpeg', 'image/png', 'image/webp']),
+  'sell-jewellery': new Set(['image/jpeg', 'image/png', 'image/webp']),
+  'sell-invoice': new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
   certificate: new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
   'scheme-id-proof': new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
+}
+
+/** Allowed MIME set for a storage kind (null if kind unknown). */
+export function allowedMimesForKind(kind) {
+  return KIND_ALLOWED[kind] || null
+}
+
+/** Validate a client-declared MIME before issuing a presigned PUT. */
+export function assertAllowedDeclaredMime(kind, contentType) {
+  const mime = String(contentType || '').toLowerCase().split(';')[0].trim()
+  if (!mime) throw new AppError(422, 'CONTENT_TYPE_REQUIRED', 'content_type is required')
+  const allowed = KIND_ALLOWED[kind]
+  if (!allowed) throw new AppError(422, 'INVALID_UPLOAD_KIND', 'Unsupported upload kind')
+  if (!allowed.has(mime)) {
+    throw new AppError(415, 'INVALID_FILE_TYPE', `File type ${mime} is not allowed for ${kind}`)
+  }
+  return mime
 }
 
 async function assertDecodableImage(buffer) {

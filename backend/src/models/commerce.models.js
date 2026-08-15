@@ -95,10 +95,13 @@ const orderSchema = new Schema({
   orderNumber: { type: String, required: true, unique: true },
   invoiceNumber: { type: String, unique: true, sparse: true },
   status: { type: String, enum: ['placed', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'partially_returned'], default: 'placed', index: true },
-  paymentMethod: { type: String, enum: ['cod', 'manual'], default: 'cod' },
+  paymentMethod: { type: String, enum: ['cod', 'manual', 'online'], default: 'cod' },
   paymentMode: { type: String, enum: ['cash', 'bank_transfer', 'card', null], default: null },
   paymentStatus: { type: String, enum: ['pending', 'paid', 'failed', 'refunded', 'partially_refunded', 'cod_pending'], default: 'cod_pending', index: true },
   pricingMode: { type: String, enum: ['cod_delivery', 'manual_locked'], default: 'cod_delivery' },
+  paymobIntentionId: String,
+  paymobOrderId: String,
+  paymobSpecialReference: String,
   subtotal: money,
   makingChargeTotal: money,
   discountAmount: money,
@@ -232,6 +235,62 @@ const reviewSchema = new Schema({
 }, { timestamps: true })
 reviewSchema.index({ productId: 1, customerId: 1 }, { unique: true, name: 'reviews_product_customer_unique' })
 
+const customJewelleryImageSchema = new Schema({
+  key: { type: String, required: true },
+}, { _id: false })
+
+const customJewelleryQuoteSchema = new Schema({
+  goldWeightGrams: { type: Number, min: 0.01 },
+  goldRatePerGram: { type: Number, min: 0 },
+  goldValue: money,
+  wastagePercent: { type: Number, min: 0, max: 100, default: 0 },
+  wastageAmount: money,
+  makingChargeType: { type: String, enum: ['percent', 'flat'], default: 'percent' },
+  makingChargeValue: { type: Number, min: 0, default: 0 },
+  makingCharge: money,
+  stoneCharge: money,
+  subtotal: money,
+  vatPercent: { type: Number, min: 0, default: 0 },
+  vatAmount: money,
+  taxMode: { type: String, enum: ['inclusive', 'exclusive'], default: 'exclusive' },
+  total: money,
+  notes: { type: String, maxlength: 2000, default: '' },
+  quotedAt: Date,
+  validUntil: Date,
+}, { _id: false })
+
+const customJewelleryRequestSchema = new Schema({
+  requestNumber: { type: String, required: true, unique: true },
+  customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
+  jewelleryType: {
+    type: String,
+    enum: ['ring', 'necklace', 'bracelet', 'earring', 'bangle', 'pendant', 'other'],
+    required: true,
+  },
+  purity: { type: String, enum: ['14k', '18k', '21k', '22k', '24k'], required: true },
+  metalColor: { type: String, enum: ['yellow', 'white', 'rose'], default: 'yellow' },
+  goldWeightGrams: { type: Number, min: 0.01, required: true },
+  sizeLabel: { type: String, maxlength: 80, default: '' },
+  description: { type: String, required: true, maxlength: 2000 },
+  budgetAed: { type: Number, min: 0, default: null },
+  images: { type: [customJewelleryImageSchema], default: [] },
+  status: {
+    type: String,
+    enum: ['submitted', 'quoted', 'accepted', 'declined', 'cancelled', 'completed'],
+    default: 'submitted',
+    index: true,
+  },
+  declinedBy: { type: String, enum: ['customer', 'staff'], default: undefined },
+  declineReason: { type: String, maxlength: 1000, default: '' },
+  quote: { type: customJewelleryQuoteSchema, default: null },
+  quotedBy: { type: Schema.Types.ObjectId, ref: 'Staff', default: null },
+  resolvedBy: { type: Schema.Types.ObjectId, ref: 'Staff', default: null },
+  resolvedAt: Date,
+  completionNote: { type: String, maxlength: 1000, default: '' },
+}, { timestamps: true })
+customJewelleryRequestSchema.index({ customerId: 1, createdAt: -1 })
+customJewelleryRequestSchema.index({ status: 1, createdAt: -1 })
+
 export const CartItem = models.CartItem || model('CartItem', cartItemSchema)
 export const WishlistItem = models.WishlistItem || model('WishlistItem', wishlistItemSchema)
 export const Address = models.Address || model('Address', addressSchema)
@@ -245,3 +304,83 @@ export const PaymentEvent = models.PaymentEvent || model('PaymentEvent', payment
 export const ReturnRequest = models.ReturnRequest || model('ReturnRequest', returnRequestSchema)
 export const ReturnCoordination = models.ReturnCoordination || model('ReturnCoordination', returnCoordinationSchema)
 export const Review = models.Review || model('Review', reviewSchema)
+export const CustomJewelleryRequest = models.CustomJewelleryRequest || model('CustomJewelleryRequest', customJewelleryRequestSchema)
+
+const sellJewelleryImageSchema = new Schema({
+  key: { type: String, required: true },
+}, { _id: false })
+
+const sellJewelleryInvoiceSchema = new Schema({
+  key: { type: String, required: true },
+}, { _id: false })
+
+const sellOfferSchema = new Schema({
+  netWeightGrams: { type: Number, min: 0.01 },
+  ratePerGram: { type: Number, min: 0 },
+  amount: money,
+  notes: { type: String, maxlength: 2000, default: '' },
+  offeredAt: Date,
+  validUntil: Date,
+}, { _id: false })
+
+const sellIndicativeSchema = new Schema({
+  netWeightGrams: { type: Number, min: 0.01 },
+  ratePerGram: { type: Number, min: 0 },
+  amount: money,
+  quotedAt: Date,
+}, { _id: false })
+
+const sellPickupAddressSchema = new Schema({
+  recipientName: String,
+  phone: String,
+  line1: String,
+  line2: String,
+  city: String,
+  state: String,
+  pincode: String,
+  country: { type: String, default: 'United Arab Emirates' },
+  latitude: Number,
+  longitude: Number,
+}, { _id: false })
+
+const sellMessageSchema = new Schema({
+  author: { type: String, enum: ['customer', 'staff'], required: true },
+  body: { type: String, maxlength: 2000, default: '' },
+  imageKeys: { type: [String], default: [] },
+  createdAt: { type: Date, default: Date.now },
+}, { _id: false })
+
+const sellJewelleryRequestSchema = new Schema({
+  requestNumber: { type: String, required: true, unique: true },
+  customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
+  jewelleryType: {
+    type: String,
+    enum: ['ring', 'necklace', 'bracelet', 'earring', 'bangle', 'pendant', 'other'],
+    default: 'other',
+  },
+  purity: { type: String, enum: ['14k', '18k', '21k', '22k', '24k'], required: true },
+  netWeightGrams: { type: Number, min: 0.01, required: true },
+  notes: { type: String, maxlength: 2000, default: '' },
+  images: { type: [sellJewelleryImageSchema], default: [] },
+  invoice: { type: sellJewelleryInvoiceSchema, default: null },
+  pickupAddress: { type: sellPickupAddressSchema, required: true },
+  indicative: { type: sellIndicativeSchema, default: null },
+  offer: { type: sellOfferSchema, default: null },
+  messages: { type: [sellMessageSchema], default: [] },
+  status: {
+    type: String,
+    enum: ['submitted', 'needs_info', 'offered', 'accepted', 'declined', 'cancelled', 'completed'],
+    default: 'submitted',
+    index: true,
+  },
+  declinedBy: { type: String, enum: ['customer', 'staff'], default: undefined },
+  declineReason: { type: String, maxlength: 1000, default: '' },
+  offeredBy: { type: Schema.Types.ObjectId, ref: 'Staff', default: null },
+  resolvedBy: { type: Schema.Types.ObjectId, ref: 'Staff', default: null },
+  resolvedAt: Date,
+  completionNote: { type: String, maxlength: 1000, default: '' },
+}, { timestamps: true })
+sellJewelleryRequestSchema.index({ customerId: 1, createdAt: -1 })
+sellJewelleryRequestSchema.index({ status: 1, createdAt: -1 })
+
+export const SellJewelleryRequest = models.SellJewelleryRequest || model('SellJewelleryRequest', sellJewelleryRequestSchema)

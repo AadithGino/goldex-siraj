@@ -634,3 +634,49 @@ describe('Phase 22.4 brand contract', () => {
     expect(found.body.data.some((row) => row.slug === 'needle-brand')).toBe(true)
   })
 })
+
+describe('store settings branches', () => {
+  it('saves boutique branches and returns them on bootstrap', async () => {
+    const payload = {
+      store_name: 'Goldex',
+      branches: [
+        {
+          name: 'Dubai Mall',
+          name_ar: 'دبي مول',
+          line1: 'Fashion Avenue',
+          city: 'Downtown',
+          emirate: 'Dubai',
+          country: 'United Arab Emirates',
+          phone: '+971 4 000 0000',
+          hours: '10:00 AM – 10:00 PM',
+          maps_url: 'https://maps.google.com/?q=Dubai+Mall',
+          is_primary: true,
+        },
+        {
+          name: 'Yas Mall',
+          line1: 'Yas Island',
+          emirate: 'Abu Dhabi',
+          is_primary: false,
+        },
+      ],
+    }
+
+    const saved = await request(app)
+      .patch('/api/v1/admin/catalog/settings/store')
+      .set('Cookie', staffCookie)
+      .send(payload)
+
+    expect(saved.status).toBe(200)
+    expect(saved.body.success).toBe(true)
+    expect(saved.body.data.branches).toHaveLength(2)
+    expect(saved.body.data.branches[0].name).toBe('Dubai Mall')
+    expect(saved.body.data.branches[0].name_ar).toBe('دبي مول')
+    expect(saved.body.data.branches[0].is_primary).toBe(true)
+    expect(saved.body.data.address.line1).toBe('Fashion Avenue')
+
+    const bootstrap = await request(app).get('/api/v1/customer/catalog/bootstrap')
+    expect(bootstrap.status).toBe(200)
+    expect(bootstrap.body.data.settings.branches).toHaveLength(2)
+    expect(bootstrap.body.data.settings.branches[1].name).toBe('Yas Mall')
+  })
+})

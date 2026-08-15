@@ -10,6 +10,8 @@ import reportRoutes from './report.routes.js'
 import userRoutes from './user.routes.js'
 import operationsRoutes from './operations.routes.js'
 import reviewRoutes from './review.routes.js'
+import customRequestRoutes from './custom-request.routes.js'
+import sellRequestRoutes from './sell-request.routes.js'
 const router = Router()
 router.use('/auth', authRoutes)
 router.use('/catalog', catalogRoutes)
@@ -22,4 +24,6 @@ router.use('/reports', reportRoutes)
 router.use('/', userRoutes)
 router.use('/', operationsRoutes)
 router.use('/reviews', reviewRoutes)
+router.use('/custom-requests', customRequestRoutes)
+router.use('/sell-requests', sellRequestRoutes)
 export default router

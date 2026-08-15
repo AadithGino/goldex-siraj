@@ -1,5 +1,5 @@
 import mongoose from 'mongoose'
-import { GoldRate, StoneRate } from '../models/rate.models.js'
+import { GoldBuybackRate, GoldRate, StoneRate } from '../models/rate.models.js'
 import { AppError } from '../utils/AppError.js'
 import { deserialize } from '../utils/serialize.js'
 
@@ -22,6 +22,32 @@ export async function setGoldRate(payload, staffId) {
     return await session.withTransaction(async () => {
       await GoldRate.updateMany({ purity: input.purity, isCurrent: true }, { $set: { isCurrent: false } }, { session })
       const [rate] = await GoldRate.create([{ purity: input.purity, ratePerGram: input.ratePerGram, effectiveAt: input.effectiveAt || new Date(), isCurrent: true, createdBy: staffId }], { session })
+      return await rate.populate('createdBy', createdByFields)
+    })
+  } finally { await session.endSession() }
+}
+
+export async function listGoldBuybackRates(currentOnly = false) {
+  return rateListQuery(GoldBuybackRate, currentOnly)
+}
+
+export async function setGoldBuybackRate(payload, staffId) {
+  const input = deserialize(payload)
+  const session = await mongoose.startSession()
+  try {
+    return await session.withTransaction(async () => {
+      await GoldBuybackRate.updateMany(
+        { purity: input.purity, isCurrent: true },
+        { $set: { isCurrent: false } },
+        { session },
+      )
+      const [rate] = await GoldBuybackRate.create([{
+        purity: input.purity,
+        ratePerGram: input.ratePerGram,
+        effectiveAt: input.effectiveAt || new Date(),
+        isCurrent: true,
+        createdBy: staffId,
+      }], { session })
       return await rate.populate('createdBy', createdByFields)
     })
   } finally { await session.endSession() }

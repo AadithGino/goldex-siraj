@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto'
 import mongoose from 'mongoose'
 import { Banner, Brand, Category, Certificate, CmsPage, Product, ProductImage, ProductStone, StoreSetting, TaxSetting, Variant } from '../models/catalog.models.js'
-import { GoldRate, StoneRate } from '../models/rate.models.js'
+import { GoldBuybackRate, GoldRate, StoneRate } from '../models/rate.models.js'
 import { AppError } from '../utils/AppError.js'
 import { sanitizeCmsHtml } from '../utils/htmlSanitize.js'
 import { paginationMeta, parsePagination } from '../utils/pagination.js'
 import { deserialize } from '../utils/serialize.js'
 import { assertVariantWeights } from './address.dto.js'
 import { assertCatalogWriteNotEmpty, toCatalogWriteDto } from './catalog.dto.js'
+import { getPaymobConfig } from './paymob.service.js'
 import { applyStockDelta } from './inventory.service.js'
 import { stableStringify } from '../validators/numeric.js'
 
@@ -737,13 +738,25 @@ export async function remove(resource, id) {
 }
 
 export async function publicBootstrap() {
-  const [settings, tax, goldRates, stoneRates] = await Promise.all([
+  const [settings, tax, goldRates, goldBuybackRates, stoneRates] = await Promise.all([
     StoreSetting.findOneAndUpdate({ singleton: 'default' }, { $setOnInsert: { storeName: 'Goldex' } }, { upsert: true, new: true }),
     TaxSetting.findOneAndUpdate({ singleton: 'default' }, { $setOnInsert: {} }, { upsert: true, new: true }),
     GoldRate.find({ isCurrent: true }),
+    GoldBuybackRate.find({ isCurrent: true }),
     StoneRate.find({ isCurrent: true }),
   ])
-  return { settings, tax, goldRates, stoneRates }
+  const paymob = getPaymobConfig()
+  return {
+    settings,
+    tax,
+    goldRates,
+    goldBuybackRates,
+    stoneRates,
+    payments: {
+      paymob_configured: paymob.isConfigured,
+      online_checkout_enabled: Boolean(settings?.onlinePaymentEnabled) && paymob.isConfigured,
+    },
+  }
 }
 
 export async function updateSettings(kind, payload) {
@@ -752,12 +765,24 @@ export async function updateSettings(kind, payload) {
     ? ['taxName', 'taxPercent', 'taxMode', 'taxRegistrationNumber', 'applyOn', 'isActive']
     : [
       'storeName', 'legalName', 'logoUrl', 'currencyCode', 'currencySymbol', 'countryCode',
-      'supportEmail', 'supportPhone', 'whatsappNumber', 'address', 'socialLinks',
+      'supportEmail', 'supportPhone', 'whatsappNumber', 'address', 'branches', 'socialLinks',
       'shippingFee', 'freeShippingThreshold', 'returnWindowDays', 'goldSchemeEnabled',
       'codEnabled', 'onlinePaymentEnabled', 'bankTransferEnabled', 'codMinOrderAmount',
       'codMaxOrderAmount', 'minimumOrderAmount', 'paymentTimeoutMinutes',
     ]
   const data = deserialize(payload || {})
   const dto = Object.fromEntries(Object.entries(data).filter(([key]) => allowed.includes(key)))
+  if (kind !== 'tax' && Array.isArray(dto.branches)) {
+    const primary = dto.branches.find((branch) => branch.isPrimary) || dto.branches[0]
+    dto.address = primary
+      ? {
+        line1: primary.line1 || '',
+        line2: primary.line2 || '',
+        city: primary.city || '',
+        emirate: primary.emirate || '',
+        country: primary.country || 'United Arab Emirates',
+      }
+      : { line1: '' }
+  }
   return Model.findOneAndUpdate({ singleton: 'default' }, { $set: dto }, { upsert: true, new: true, runValidators: true })
 }

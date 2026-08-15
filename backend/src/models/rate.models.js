@@ -5,6 +5,19 @@ const goldRateSchema = new Schema({ purity: { type: String, enum: ['14k', '18k',
 goldRateSchema.index({ purity: 1, isCurrent: 1 }, { unique: true, name: 'goldrates_current_unique', partialFilterExpression: { isCurrent: true } })
 goldRateSchema.index({ purity: 1, effectiveAt: -1 })
 
+const goldBuybackRateSchema = new Schema({
+  purity: { type: String, enum: ['14k', '18k', '21k', '22k', '24k'], required: true, index: true },
+  ratePerGram: { type: Number, min: 0.01, required: true },
+  effectiveAt: { type: Date, default: Date.now },
+  isCurrent: { type: Boolean, default: true, index: true },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'Staff' },
+}, { timestamps: { createdAt: true, updatedAt: false } })
+goldBuybackRateSchema.index(
+  { purity: 1, isCurrent: 1 },
+  { unique: true, name: 'goldbuybackrates_current_unique', partialFilterExpression: { isCurrent: true } },
+)
+goldBuybackRateSchema.index({ purity: 1, effectiveAt: -1 })
+
 const stoneRateSchema = new Schema({ stoneType: { type: String, required: true }, grade: String, unit: { type: String, enum: ['carat', 'piece'], required: true }, rate: { type: Number, min: 0.01, required: true }, effectiveAt: { type: Date, default: Date.now }, isCurrent: { type: Boolean, default: true }, createdBy: { type: Schema.Types.ObjectId, ref: 'Staff' } }, { timestamps: { createdAt: true, updatedAt: false } })
 stoneRateSchema.index({ stoneType: 1, grade: 1, unit: 1, isCurrent: 1 }, { unique: true, name: 'stonerates_current_unique', partialFilterExpression: { isCurrent: true } })
 
@@ -38,5 +51,6 @@ stockMovementSchema.index(
 stockMovementSchema.index({ variantId: 1 }, { name: 'stockmovements_variantId' })
 
 export const GoldRate = models.GoldRate || model('GoldRate', goldRateSchema)
+export const GoldBuybackRate = models.GoldBuybackRate || model('GoldBuybackRate', goldBuybackRateSchema)
 export const StoneRate = models.StoneRate || model('StoneRate', stoneRateSchema)
 export const StockMovement = models.StockMovement || model('StockMovement', stockMovementSchema)

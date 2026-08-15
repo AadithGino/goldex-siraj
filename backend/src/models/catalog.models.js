@@ -3,11 +3,27 @@ import mongoose from 'mongoose'
 const { Schema, model, models } = mongoose
 const money = { type: Number, min: 0, default: 0 }
 
+const storeBranchSchema = new Schema({
+  name: { type: String, required: true, trim: true },
+  nameAr: { type: String, default: '' },
+  line1: { type: String, default: '' },
+  line2: { type: String, default: '' },
+  city: { type: String, default: '' },
+  emirate: { type: String, default: '' },
+  country: { type: String, default: 'United Arab Emirates' },
+  phone: { type: String, default: '' },
+  hours: { type: String, default: '' },
+  hoursAr: { type: String, default: '' },
+  mapsUrl: { type: String, default: '' },
+  isPrimary: { type: Boolean, default: false },
+}, { _id: true })
+
 const storeSettingSchema = new Schema({
   singleton: { type: String, default: 'default', unique: true },
   storeName: { type: String, required: true, default: 'Goldex' }, legalName: String, logoUrl: String,
   currencyCode: { type: String, default: 'AED' }, currencySymbol: { type: String, default: 'AED' }, countryCode: { type: String, default: 'AE' },
   supportEmail: String, supportPhone: String, whatsappNumber: String, address: { type: Schema.Types.Mixed, default: {} }, socialLinks: { type: Schema.Types.Mixed, default: {} },
+  branches: { type: [storeBranchSchema], default: [] },
   shippingFee: { type: Number, min: 0, default: 0 }, freeShippingThreshold: { type: Number, min: 0, default: 0 }, returnWindowDays: { type: Number, min: 0, default: 7 },
   goldSchemeEnabled: { type: Boolean, default: true }, codEnabled: { type: Boolean, default: true }, onlinePaymentEnabled: { type: Boolean, default: false }, bankTransferEnabled: { type: Boolean, default: true },
   codMinOrderAmount: { type: Number, min: 0, default: 0 }, codMaxOrderAmount: { type: Number, min: 0, default: null }, minimumOrderAmount: { type: Number, min: 0, default: 0 }, paymentTimeoutMinutes: { type: Number, min: 1, default: 30 },

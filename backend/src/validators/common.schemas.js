@@ -26,6 +26,43 @@ export const booleanQuery = z.preprocess((value) => {
 
 export const dateQuery = z.preprocess(emptyToUndefined, z.coerce.date().optional())
 
+/**
+ * Persistable S3 object key. Accepts a bare key or a full/signed URL and
+ * normalizes to the object key (query string stripped).
+ */
+export function toStorageKey(value) {
+  if (value == null) return value
+  const raw = String(value).trim()
+  if (!raw) return raw
+  if (!/^https?:\/\//i.test(raw)) return raw.split('?')[0] || raw
+
+  try {
+    const url = new URL(raw)
+    let key = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
+    // path-style: s3.region.amazonaws.com/bucket/key...
+    if (/^s3[.\w-]*\.amazonaws\.com$/i.test(url.hostname)) {
+      const parts = key.split('/')
+      if (parts.length > 1) key = parts.slice(1).join('/')
+    }
+    return key || raw.split('?')[0]
+  } catch {
+    return raw.split('?')[0] || raw
+  }
+}
+
+export const storageKeyString = z.preprocess(
+  (value) => toStorageKey(value),
+  z.string().trim().min(1).max(500),
+)
+
+export const optionalStorageKeyString = z.preprocess(
+  (value) => {
+    if (value == null || value === '') return null
+    return toStorageKey(value)
+  },
+  z.union([z.string().trim().min(1).max(500), z.null()]).optional(),
+)
+
 export const paginationQuerySchema = z.object({
   page: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).optional().default(1)),
   limit: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(200).optional().default(50)),

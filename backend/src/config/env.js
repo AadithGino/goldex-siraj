@@ -46,6 +46,16 @@ const schema = z.object({
   JEWELLERY_FOLDER: z.string().optional(),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
   LOG_LEVEL: z.string().default('info'),
+  API_PUBLIC_URL: z.string().url().optional(),
+  PAYMOB_ENABLED: envBoolean.default(false),
+  PAYMOB_BASE_URL: z.string().url().optional(),
+  PAYMOB_SECRET_KEY: z.string().optional(),
+  PAYMOB_PUBLIC_KEY: z.string().optional(),
+  PAYMOB_HMAC_SECRET: z.string().optional(),
+  PAYMOB_API_KEY: z.string().optional(),
+  PAYMOB_INTEGRATION_ID: z.coerce.number().int().positive().optional(),
+  PAYMOB_PAYMENT_METHOD: z.string().optional(),
+  PAYMOB_CURRENCY: z.string().default('AED'),
 })
 
 const parsed = schema.safeParse(process.env)
@@ -134,6 +144,18 @@ export const config = Object.freeze({
     s3: s3Config,
   },
   logLevel: env.LOG_LEVEL,
+  publicApiUrl: firstNonEmpty(env.API_PUBLIC_URL) || `http://localhost:${env.PORT}`,
+  paymob: {
+    enabled: env.PAYMOB_ENABLED,
+    baseUrl: firstNonEmpty(env.PAYMOB_BASE_URL) || 'https://uae.paymob.com',
+    secretKey: firstNonEmpty(env.PAYMOB_SECRET_KEY),
+    publicKey: firstNonEmpty(env.PAYMOB_PUBLIC_KEY),
+    hmacSecret: firstNonEmpty(env.PAYMOB_HMAC_SECRET),
+    apiKey: firstNonEmpty(env.PAYMOB_API_KEY),
+    integrationId: env.PAYMOB_INTEGRATION_ID,
+    paymentMethod: firstNonEmpty(env.PAYMOB_PAYMENT_METHOD) || 'card',
+    currency: firstNonEmpty(env.PAYMOB_CURRENCY) || 'AED',
+  },
 })
 
 /** Development-only: plaintext OTP may appear in API responses solely under these conditions. */

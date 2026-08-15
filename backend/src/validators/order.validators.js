@@ -13,7 +13,8 @@ export const envelope = (body, params = z.object({}).passthrough(), query = z.ob
 
 export const placeOrderSchema = envelope(z.object({
   address_id: objectId,
-  payment_method: z.enum(['cod', 'manual']),
+  payment_method: z.enum(['cod', 'manual', 'online']),
+  payment_mode: z.enum(['cash', 'bank_transfer', 'card']).optional(),
   wallet_use: z.coerce.number().finite().min(0).max(1_000_000).optional().default(0),
   coupon_code: z.string().trim().max(64).nullable().optional(),
   idempotency_key: z.string().trim().min(8).max(128),

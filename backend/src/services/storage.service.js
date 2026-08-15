@@ -5,7 +5,7 @@ import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { config } from '../config/env.js'
 import { AppError } from '../utils/AppError.js'
-import { assertSafeUpload } from '../utils/fileSignature.js'
+import { assertAllowedDeclaredMime, assertSafeUpload } from '../utils/fileSignature.js'
 import { optimizeUploadImage } from '../utils/imageOptimize.js'
 import { logger } from '../config/logger.js'
 
@@ -21,6 +21,22 @@ const UPLOAD_KINDS = {
   certificate: { visibility: 'private', folder: 'product-certificates' },
   return: { visibility: 'private', folder: 'return-proof-images' },
   'scheme-id-proof': { visibility: 'private', folder: 'scheme-id-proof-images' },
+  'custom-jewellery': { visibility: 'private', folder: 'custom-jewellery-images' },
+  'sell-jewellery': { visibility: 'private', folder: 'sell-jewellery-images' },
+  'sell-invoice': { visibility: 'private', folder: 'sell-invoice-files' },
+}
+
+/** Customer kinds that may use direct-to-S3 presigned PUT. */
+export const CUSTOMER_PRESIGN_KINDS = new Set([
+  'custom-jewellery',
+  'sell-jewellery',
+  'sell-invoice',
+])
+
+const CUSTOMER_PROXY_PATHS = {
+  'custom-jewellery': '/customer/media/custom-jewellery',
+  'sell-jewellery': '/customer/media/sell-jewellery',
+  'sell-invoice': '/customer/media/sell-invoice',
 }
 
 const extensions = {
@@ -33,6 +49,8 @@ const extensions = {
 }
 
 const DEFAULT_SIGNED_TTL = 60 * 60
+/** Short-lived PUT URLs for browser → S3 uploads. */
+const PRESIGN_PUT_TTL = 15 * 60
 /** Reuse signed URLs so browsers can cache (new signature every response defeats cache). */
 const signedUrlCache = new Map()
 
@@ -165,6 +183,17 @@ export async function getSignedObjectUrl(keyOrUrl, {
   return url
 }
 
+const STORAGE_KEY_FIELDS = new Set(['key', 'storage_url', 'storageUrl'])
+
+function isStorageKeyField(fieldName) {
+  return STORAGE_KEY_FIELDS.has(fieldName) || /(?:_key|Key)$/.test(fieldName)
+}
+
+/**
+ * Replace displayable media refs with signed GET URLs.
+ * Persistent fields (`key`, `storage_url`, `*_key`) are left unchanged so clients
+ * can resubmit them; objects with a storage `key` also get a signed `url`.
+ */
 export async function signMediaUrls(value, { cache = new Map() } = {}) {
   if (value == null) return value
   if (typeof value === 'string') {
@@ -181,11 +210,90 @@ export async function signMediaUrls(value, { cache = new Map() } = {}) {
   }
   if (typeof value !== 'object') return value
   if (value instanceof Date) return value
+
   const out = {}
   for (const [k, v] of Object.entries(value)) {
+    if (typeof v === 'string' && isStorageKeyField(k)) {
+      out[k] = v
+      continue
+    }
     out[k] = await signMediaUrls(v, { cache })
   }
+
+  const rawKey = typeof out.key === 'string'
+    ? out.key
+    : (typeof out.storage_url === 'string' ? out.storage_url : null)
+  if (rawKey && isOurStorageObject(rawKey)) {
+    const key = extractStorageKey(rawKey)
+    if (key) {
+      if (cache.has(key)) out.url = cache.get(key)
+      else {
+        const signed = await getSignedObjectUrl(key)
+        cache.set(key, signed || rawKey)
+        out.url = cache.get(key)
+      }
+    }
+  }
+
   return out
+}
+
+/**
+ * Issue a browser→S3 PUT URL for customer private uploads.
+ * When STORAGE_DRIVER=local, returns mode=proxy so the client uses multipart to the API.
+ */
+export async function createPresignedUpload(kind, { contentType, contentLength } = {}) {
+  if (!CUSTOMER_PRESIGN_KINDS.has(kind)) {
+    throw new AppError(422, 'INVALID_UPLOAD_KIND', 'This upload kind does not support presigned upload')
+  }
+  const meta = resolveUploadKind(kind)
+  const mime = assertAllowedDeclaredMime(kind, contentType)
+  const size = Number(contentLength)
+  if (!Number.isFinite(size) || size <= 0) {
+    throw new AppError(422, 'CONTENT_LENGTH_REQUIRED', 'content_length must be a positive number')
+  }
+  if (size > config.storage.maxBytes) {
+    throw new AppError(413, 'FILE_TOO_LARGE', 'Uploaded file exceeds the maximum allowed size')
+  }
+
+  if (config.storage.driver !== 's3') {
+    return {
+      mode: 'proxy',
+      kind,
+      upload_path: CUSTOMER_PROXY_PATHS[kind],
+      content_type: mime,
+      max_bytes: config.storage.maxBytes,
+      expires_in: null,
+    }
+  }
+
+  const key = buildObjectKey(kind, mime)
+  const storageUrl = canonicalObjectUrl(key)
+  const expiresIn = PRESIGN_PUT_TTL
+  const client = getS3()
+  const command = new PutObjectCommand({
+    Bucket: config.storage.s3.bucket,
+    Key: key,
+    ContentType: mime,
+    CacheControl: meta.visibility === 'public'
+      ? 'public,max-age=31536000,immutable'
+      : 'private, max-age=3600',
+  })
+  const uploadUrl = await getSignedUrl(client, command, { expiresIn })
+
+  return {
+    mode: 's3',
+    kind,
+    key,
+    upload_url: uploadUrl,
+    method: 'PUT',
+    headers: { 'content-type': mime },
+    storage_url: storageUrl,
+    content_type: mime,
+    max_bytes: config.storage.maxBytes,
+    visibility: meta.visibility,
+    expires_in: expiresIn,
+  }
 }
 
 export async function upload(kind, file) {
