@@ -31,7 +31,12 @@ app.use(cors({
   optionsSuccessStatus: 204,
 }))
 app.use(rateLimit({ windowMs: 60_000, limit: 180, standardHeaders: 'draft-8', legacyHeaders: false }))
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => {
+    req.rawBody = buf.toString('utf8')
+  },
+}))
 app.use(express.urlencoded({ extended: false, limit: '1mb' }))
 app.use(cookieParser())
 app.use(sanitize)

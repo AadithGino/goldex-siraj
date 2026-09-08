@@ -28,8 +28,251 @@ async function deliverOtp(phone, code) {
     logger.info({ phone }, 'Development OTP delivered via console provider')
     return
   }
-  const response = await fetch(config.otp.providerUrl, { method: 'POST', headers: { authorization: `Bearer ${config.otp.apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify({ phone, code }) })
-  if (!response.ok) throw new AppError(502, 'OTP_DELIVERY_FAILED', 'Could not deliver OTP')
+  if (config.otp.provider === 'http') {
+    const response = await fetch(config.otp.providerUrl, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${config.otp.apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ phone, code }),
+    })
+    if (!response.ok) throw new AppError(502, 'OTP_DELIVERY_FAILED', 'Could not deliver OTP')
+    return
+  }
+  if (config.otp.provider === 'whatsapp_cloud') {
+    await deliverOtpViaWhatsAppCloud(phone, code)
+    return
+  }
+  throw new AppError(503, 'OTP_PROVIDER_UNSUPPORTED', 'OTP provider is not supported')
+}
+
+function normalizeWhatsappRecipient(phone) {
+  return String(phone || '').replace(/[^\d]/g, '')
+}
+
+function buildTemplatePayloads({
+  to, templateName, languageCode, code, expiryMinutes,
+}) {
+  const base = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+    },
+  }
+  return [
+    {
+      shape: 'body_two_params_plus_url_button',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: code },
+                { type: 'text', text: String(expiryMinutes) },
+              ],
+            },
+            {
+              type: 'button',
+              sub_type: 'url',
+              index: '0',
+              parameters: [{ type: 'text', text: code }],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'body_text_two_params_code_expiry',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: code },
+                { type: 'text', text: String(expiryMinutes) },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'body_text_two_params_code_code',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                { type: 'text', text: code },
+                { type: 'text', text: code },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'body_text_one_param',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: code }],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'body_text_plus_copy_code_button',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: code }],
+            },
+            {
+              type: 'button',
+              sub_type: 'copy_code',
+              index: '0',
+              parameters: [{ type: 'text', text: code }],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'body_text_plus_copy_code_payload',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: code }],
+            },
+            {
+              type: 'button',
+              sub_type: 'copy_code',
+              index: '0',
+              parameters: [{ type: 'payload', payload: code }],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'body_text_plus_url_button',
+      payload: {
+        ...base,
+        template: {
+          ...base.template,
+          components: [
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: code }],
+            },
+            {
+              type: 'button',
+              sub_type: 'url',
+              index: '0',
+              parameters: [{ type: 'text', text: code }],
+            },
+          ],
+        },
+      },
+    },
+    {
+      shape: 'template_without_components',
+      payload: base,
+    },
+  ]
+}
+
+async function deliverOtpViaWhatsAppCloud(phone, code) {
+  const wa = config.otp.whatsappCloud || {}
+  if (!wa.phoneNumberId || !wa.accessToken || !wa.templateName) {
+    throw new AppError(503, 'OTP_PROVIDER_NOT_CONFIGURED', 'WhatsApp OTP provider is not configured')
+  }
+  const to = normalizeWhatsappRecipient(phone)
+  if (!to) throw new AppError(422, 'INVALID_PHONE', 'Phone number is invalid')
+
+  const configuredLang = String(wa.templateLanguage || 'en').trim()
+  const expiryMinutes = Math.max(1, Math.round(Number(config.otp.ttlSeconds || 600) / 60))
+  const langCandidates = [...new Set([
+    configuredLang,
+    configuredLang.toLowerCase() === 'en' ? 'en_US' : null,
+  ].filter(Boolean))]
+
+  let lastFailure = null
+  for (const languageCode of langCandidates) {
+    const payloadVariants = buildTemplatePayloads({
+      to,
+      templateName: wa.templateName,
+      languageCode,
+      code,
+      expiryMinutes,
+    })
+    for (const variant of payloadVariants) {
+      const response = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(String(wa.phoneNumberId))}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${wa.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(variant.payload),
+      })
+      const body = await response.json().catch(() => null)
+      if (response.ok) return
+
+      lastFailure = {
+        status: response.status,
+        error: body?.error?.message || body,
+        details: body?.error?.error_data?.details,
+        code: body?.error?.code,
+        subcode: body?.error?.error_subcode,
+        type: body?.error?.type,
+        languageCode,
+        payloadShapeTried: variant.shape,
+      }
+      const codeNum = Number(body?.error?.code)
+      if (codeNum === 132001) break
+      if (codeNum === 132000) continue
+      if (codeNum === 100) continue
+      break
+    }
+    if (Number(lastFailure?.code) !== 132001) break
+  }
+
+  logger.error(lastFailure || {}, 'WhatsApp Cloud OTP delivery failed')
+  if (Number(lastFailure?.code) === 132001) {
+    throw new AppError(
+      502,
+      'OTP_TEMPLATE_NOT_FOUND',
+      'WhatsApp template/language is not available for this phone number',
+    )
+  }
+  throw new AppError(502, 'OTP_DELIVERY_FAILED', 'Could not deliver OTP')
 }
 
 function isDuplicateKey(error) {

@@ -19,9 +19,15 @@ const schema = z.object({
   COOKIE_SECURE: z.string().default('false'),
   OTP_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().min(3).max(10).default(5),
-  OTP_PROVIDER: z.enum(['console', 'http']).default('console'),
+  OTP_PROVIDER: z.enum(['console', 'http', 'whatsapp_cloud']).default('console'),
   OTP_PROVIDER_API_KEY: z.string().optional(),
   OTP_PROVIDER_URL: z.string().url().optional(),
+  WHATSAPP_BUSINESS_ID: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  WHATSAPP_TEMPLATE_NAME: z.string().optional(),
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
   SHOW_TEST_OTP: envBoolean.default(false),
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('uploads'),
@@ -56,6 +62,16 @@ const schema = z.object({
   PAYMOB_INTEGRATION_ID: z.coerce.number().int().positive().optional(),
   PAYMOB_PAYMENT_METHOD: z.string().optional(),
   PAYMOB_CURRENCY: z.string().default('AED'),
+  TABBY_ENABLED: envBoolean.default(false),
+  TABBY_BASE_URL: z.string().url().optional(),
+  TABBY_PUBLIC_KEY: z.string().optional(),
+  TABBY_SECRET_KEY: z.string().optional(),
+  TABBY_MERCHANT_CODE: z.string().optional(),
+  TABBY_WEBHOOK_SECRET: z.string().optional(),
+  ONLINE_PAYMENT_PROVIDER: z.enum(['auto', 'paymob', 'tabby']).default('auto'),
+  PAYMENT_RECONCILIATION_ENABLED: envBoolean.default(true),
+  PAYMENT_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(900).default(45),
+  PAYMENT_RECONCILIATION_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(25),
 })
 
 const parsed = schema.safeParse(process.env)
@@ -112,6 +128,12 @@ if (env.NODE_ENV === 'production') {
   }
   if (env.OTP_PROVIDER === 'console') throw new Error('Console OTP provider is forbidden in production')
   if (env.OTP_PROVIDER === 'http' && (!env.OTP_PROVIDER_URL || !env.OTP_PROVIDER_API_KEY)) throw new Error('Production OTP provider URL and API key are required')
+  if (env.OTP_PROVIDER === 'whatsapp_cloud' && (!env.WHATSAPP_PHONE_NUMBER_ID || !env.WHATSAPP_ACCESS_TOKEN || !env.WHATSAPP_TEMPLATE_NAME)) {
+    throw new Error('Production WhatsApp Cloud OTP config is incomplete')
+  }
+  if (env.TABBY_ENABLED && !env.TABBY_WEBHOOK_SECRET) {
+    throw new Error('Production Tabby webhook secret is required when TABBY_ENABLED=true')
+  }
   if (env.SHOW_TEST_OTP) throw new Error('SHOW_TEST_OTP is forbidden in production')
 }
 
@@ -129,6 +151,14 @@ export const config = Object.freeze({
     apiKey: env.OTP_PROVIDER_API_KEY,
     providerUrl: env.OTP_PROVIDER_URL,
     showTestOtp: env.SHOW_TEST_OTP,
+    whatsappCloud: {
+      businessId: firstNonEmpty(env.WHATSAPP_BUSINESS_ID),
+      phoneNumber: firstNonEmpty(env.WHATSAPP_PHONE_NUMBER),
+      phoneNumberId: firstNonEmpty(env.WHATSAPP_PHONE_NUMBER_ID),
+      accessToken: firstNonEmpty(env.WHATSAPP_ACCESS_TOKEN),
+      templateName: firstNonEmpty(env.WHATSAPP_TEMPLATE_NAME) || 'login_otp',
+      templateLanguage: firstNonEmpty(env.WHATSAPP_TEMPLATE_LANGUAGE) || 'en',
+    },
   },
   jewellery: {
     id: firstNonEmpty(env.JEWELLERY_ID) || '',
@@ -155,6 +185,20 @@ export const config = Object.freeze({
     integrationId: env.PAYMOB_INTEGRATION_ID,
     paymentMethod: firstNonEmpty(env.PAYMOB_PAYMENT_METHOD) || 'card',
     currency: firstNonEmpty(env.PAYMOB_CURRENCY) || 'AED',
+  },
+  tabby: {
+    enabled: env.TABBY_ENABLED,
+    baseUrl: firstNonEmpty(env.TABBY_BASE_URL) || 'https://api.tabby.ai',
+    publicKey: firstNonEmpty(env.TABBY_PUBLIC_KEY),
+    secretKey: firstNonEmpty(env.TABBY_SECRET_KEY),
+    merchantCode: firstNonEmpty(env.TABBY_MERCHANT_CODE),
+    webhookSecret: firstNonEmpty(env.TABBY_WEBHOOK_SECRET),
+  },
+  onlinePaymentProvider: env.ONLINE_PAYMENT_PROVIDER,
+  paymentReconciliation: {
+    enabled: env.PAYMENT_RECONCILIATION_ENABLED,
+    intervalSeconds: env.PAYMENT_RECONCILIATION_INTERVAL_SECONDS,
+    batchSize: env.PAYMENT_RECONCILIATION_BATCH_SIZE,
   },
 })
 

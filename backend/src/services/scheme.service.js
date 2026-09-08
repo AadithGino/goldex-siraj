@@ -30,6 +30,59 @@ function maturityReached(maturityAt) {
   return dubaiYmd() >= dubaiYmd(new Date(maturityAt))
 }
 
+function allInstallmentsPaid(enrollment) {
+  const installments = enrollment?.installments || []
+  if (!installments.length) return false
+  return installments.every((item) => item.paymentStatus === 'paid')
+}
+
+/** Active enrollment with every installment paid and Dubai maturity date reached. */
+export function isEnrollmentEligibleForCompletion(enrollment) {
+  if (!enrollment || enrollment.status !== 'active') return false
+  if (!allInstallmentsPaid(enrollment)) return false
+  const maturityAt = enrollment.maturityAt
+    || computeMaturityAt(enrollment.startedAt, enrollment.tenureMonthsSnapshot)
+  return maturityReached(maturityAt)
+}
+
+/**
+ * Credit wallet and mark completed when eligible. No-op if not ready yet.
+ * Safe to call concurrently — completion is idempotent.
+ */
+export async function tryAutoCompleteEnrollment(enrollmentId, actorId = null) {
+  if (!mongoose.isValidObjectId(enrollmentId)) return null
+  const enrollment = await SchemeEnrollment.findById(enrollmentId)
+  if (!isEnrollmentEligibleForCompletion(enrollment)) return null
+  try {
+    return await completeEnrollment(enrollmentId, actorId, {
+      note: 'Automatic maturity completion — wallet credited',
+    })
+  } catch (error) {
+    if (error?.code === 'MATURITY_NOT_REACHED' || error?.code === 'INSTALLMENTS_UNPAID') {
+      return null
+    }
+    if (error?.code === 'ENROLLMENT_INACTIVE') {
+      const refreshed = await SchemeEnrollment.findById(enrollmentId)
+      return refreshed?.status === 'completed' ? refreshed : null
+    }
+    throw error
+  }
+}
+
+async function reloadEnrollmentForRead(id, { admin = false, customerId = null } = {}) {
+  const filter = customerId ? { _id: id, customerId } : { _id: id }
+  let query = SchemeEnrollment.findOne(filter).populate('schemeId')
+  if (admin) query = query.populate('customerId', 'fullName phone email')
+  return query
+}
+
+async function autoCompleteActiveEnrollments(rows, actorId = null) {
+  const eligible = rows.filter((row) => isEnrollmentEligibleForCompletion(row))
+  if (!eligible.length) return rows
+  await Promise.all(eligible.map((row) => tryAutoCompleteEnrollment(row.id, actorId)))
+  return rows
+}
+
 function resolveEnrollmentIdentity(body = {}) {
   const passportGroup = resolveAliasGroup(body, ['passport_number', 'passportNumber'])
   const passportNumber = passportGroup.present && passportGroup.value != null && String(passportGroup.value).trim() !== ''
@@ -222,8 +275,12 @@ export async function listCustomerEnrollments(customerId, query = {}) {
     SchemeEnrollment.countDocuments(filter),
   ])
   rows.forEach((row) => applyOverdueStatuses(row))
+  await autoCompleteActiveEnrollments(rows)
+  const refreshed = await Promise.all(
+    rows.map((row) => SchemeEnrollment.findById(row.id).populate('schemeId')),
+  )
   return {
-    items: rows.map((row) => serializeEnrollment(row, { maskRef: true })),
+    items: refreshed.map((row) => serializeEnrollment(row, { maskRef: true })),
     ...paginationMeta(page, limit, total),
   }
 }
@@ -258,19 +315,29 @@ export async function listEnrollments(query = {}) {
     SchemeEnrollment.countDocuments(filter),
   ])
   rows.forEach((row) => applyOverdueStatuses(row))
+  await autoCompleteActiveEnrollments(rows)
+  const refreshed = await Promise.all(
+    rows.map((row) => SchemeEnrollment.findById(row.id)
+      .populate('schemeId')
+      .populate('customerId', 'fullName phone email')),
+  )
   return {
-    items: rows.map((row) => serializeEnrollment(row)),
+    items: refreshed.map((row) => serializeEnrollment(row)),
     ...paginationMeta(page, limit, total),
   }
 }
 
 export async function getEnrollmentForAdmin(id) {
   if (!mongoose.isValidObjectId(id)) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
-  const enrollment = await SchemeEnrollment.findById(id)
+  let enrollment = await SchemeEnrollment.findById(id)
     .populate('schemeId')
     .populate('customerId', 'fullName phone email')
   if (!enrollment) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
   applyOverdueStatuses(enrollment)
+  if (enrollment.status === 'active') {
+    await tryAutoCompleteEnrollment(enrollment.id, null)
+    enrollment = await reloadEnrollmentForRead(id, { admin: true })
+  }
   const serialized = serializeEnrollment(enrollment)
   if (serialized.id_proof_key || serialized.id_proof_url) {
     serialized.id_proof_url = await signIdProofUrl({
@@ -283,9 +350,13 @@ export async function getEnrollmentForAdmin(id) {
 
 export async function getEnrollmentForCustomer(customerId, id) {
   if (!mongoose.isValidObjectId(id)) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
-  const enrollment = await SchemeEnrollment.findOne({ _id: id, customerId }).populate('schemeId')
+  let enrollment = await SchemeEnrollment.findOne({ _id: id, customerId }).populate('schemeId')
   if (!enrollment) throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Enrollment not found')
   applyOverdueStatuses(enrollment)
+  if (enrollment.status === 'active') {
+    await tryAutoCompleteEnrollment(enrollment.id, null)
+    enrollment = await reloadEnrollmentForRead(id, { customerId })
+  }
   return serializeEnrollment(enrollment, { maskRef: true })
 }
 
@@ -448,7 +519,7 @@ export async function recordInstallment(enrollmentId, installmentId, input, staf
   }
   const session = await mongoose.startSession()
   try {
-    return await session.withTransaction(async () => {
+    const result = await session.withTransaction(async () => {
       const enrollment = await SchemeEnrollment.findById(enrollmentId).session(session)
       if (!enrollment || enrollment.status !== 'active') {
         throw new AppError(409, 'ENROLLMENT_INACTIVE', 'Enrollment is not active')
@@ -596,6 +667,8 @@ export async function recordInstallment(enrollmentId, installmentId, input, staf
         transactionRef: displayRef,
       })
     })
+    await tryAutoCompleteEnrollment(enrollmentId, staffId)
+    return result
   } finally {
     await session.endSession()
   }

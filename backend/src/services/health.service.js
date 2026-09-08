@@ -64,6 +64,16 @@ export function assertProductionConfig(cfg = config) {
   if (cfg.otp.provider === 'http' && (!cfg.otp.providerUrl || !cfg.otp.apiKey)) {
     throw new Error('Production OTP HTTP provider URL and API key are required')
   }
+  if (
+    cfg.otp.provider === 'whatsapp_cloud'
+    && (
+      !cfg.otp.whatsappCloud?.phoneNumberId
+      || !cfg.otp.whatsappCloud?.accessToken
+      || !cfg.otp.whatsappCloud?.templateName
+    )
+  ) {
+    throw new Error('Production WhatsApp Cloud OTP configuration is incomplete')
+  }
   if (cfg.otp.showTestOtp) {
     throw new Error('SHOW_TEST_OTP is forbidden in production')
   }
@@ -89,12 +99,22 @@ function otpConfigStatus(cfg = config) {
     maxAttempts: cfg.otp.maxAttempts,
   }
   if (cfg.nodeEnv === 'production') {
-    if (cfg.otp.provider !== 'http') {
-      status.ok = false
-      status.reason = 'production_requires_http_otp'
-    } else if (!cfg.otp.providerUrl || !cfg.otp.apiKey) {
+    if (cfg.otp.provider === 'http' && (!cfg.otp.providerUrl || !cfg.otp.apiKey)) {
       status.ok = false
       status.reason = 'otp_http_config_incomplete'
+    } else if (
+      cfg.otp.provider === 'whatsapp_cloud'
+      && (
+        !cfg.otp.whatsappCloud?.phoneNumberId
+        || !cfg.otp.whatsappCloud?.accessToken
+        || !cfg.otp.whatsappCloud?.templateName
+      )
+    ) {
+      status.ok = false
+      status.reason = 'otp_whatsapp_config_incomplete'
+    } else if (cfg.otp.provider !== 'http' && cfg.otp.provider !== 'whatsapp_cloud') {
+      status.ok = false
+      status.reason = 'production_requires_managed_otp_provider'
     } else if (cfg.otp.showTestOtp) {
       status.ok = false
       status.reason = 'show_test_otp_forbidden'
@@ -104,6 +124,16 @@ function otpConfigStatus(cfg = config) {
   } else if (cfg.otp.provider === 'http' && (!cfg.otp.providerUrl || !cfg.otp.apiKey)) {
     status.ok = false
     status.reason = 'otp_http_config_incomplete'
+  } else if (
+    cfg.otp.provider === 'whatsapp_cloud'
+    && (
+      !cfg.otp.whatsappCloud?.phoneNumberId
+      || !cfg.otp.whatsappCloud?.accessToken
+      || !cfg.otp.whatsappCloud?.templateName
+    )
+  ) {
+    status.ok = false
+    status.reason = 'otp_whatsapp_config_incomplete'
   }
   // Never include apiKey / secrets
   return status

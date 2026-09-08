@@ -5,7 +5,13 @@ import {
   resolveGoldexOrderId,
   verifyPaymobTransactionHmac,
 } from '../../services/paymob.service.js'
+import { AppError } from '../../utils/AppError.js'
 import { logger } from '../../config/logger.js'
+
+function shouldRetryWebhook(error) {
+  if (!(error instanceof AppError)) return true
+  return Number(error.statusCode) >= 500
+}
 
 export async function handleWebhook(req, res) {
   const hmac = req.query.hmac
@@ -29,11 +35,14 @@ export async function handleWebhook(req, res) {
       await orderService.applyOnlinePaymentFromProvider(orderId, {
         transactionId: String(obj.id),
         amount: Number(obj.amount_cents) / 100,
-        payload: obj,
+        payload: { provider: 'paymob', webhook: obj },
       })
       logger.info({ orderId, transactionId: obj.id, requestId: req.id }, 'Paymob webhook marked order paid')
     } catch (error) {
       logger.error({ err: error, orderId, rawOrderRef, requestId: req.id }, 'Paymob webhook processing failed')
+      if (shouldRetryWebhook(error)) {
+        return res.status(500).json({ success: false })
+      }
     }
   } else {
     logger.info({

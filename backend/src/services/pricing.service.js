@@ -11,9 +11,45 @@ function normalizeStoneKey(value) {
   return String(value || '').trim().toLowerCase()
 }
 
-async function loadLiveStoneBreakup(variantId, session) {
-  const stones = await ProductStone.find({ variantId }).sort({ displayOrder: 1, createdAt: 1 }).session(session || null)
+function normalizeStoneRateLookupKey({ stoneType, grade, unit }) {
+  return `${normalizeStoneKey(stoneType)}|${normalizeStoneKey(grade || '')}|${unit === 'carat' ? 'carat' : 'piece'}`
+}
+
+async function loadLiveStoneBreakup(variantId, session, context = {}) {
+  const stones = await ProductStone.find({ variantId }).sort({ displayOrder: 1, createdAt: 1 }).session(session || null).lean()
   if (!stones.length) return []
+
+  const referencedRateIds = [...new Set(
+    stones
+      .map((stone) => stone?.stoneRateId)
+      .filter(Boolean)
+      .map((id) => String(id)),
+  )]
+  const referencedRateCache = context.referencedStoneRatesById || new Map()
+  const currentRateCache = context.currentStoneRatesByKey || null
+  const missingReferencedRateIds = referencedRateIds.filter((id) => !referencedRateCache.has(id))
+  const [referencedRates, currentRates] = await Promise.all([
+    missingReferencedRateIds.length
+      ? StoneRate.find({ _id: { $in: missingReferencedRateIds } }).session(session || null).lean()
+      : Promise.resolve([]),
+    currentRateCache
+      ? Promise.resolve([])
+      : StoneRate.find({ isCurrent: true }).sort({ effectiveAt: -1 }).session(session || null).lean(),
+  ])
+  referencedRates.forEach((rate) => referencedRateCache.set(String(rate._id), rate))
+  const currentByKey = currentRateCache || new Map()
+  if (!currentRateCache) {
+    for (const rate of currentRates) {
+      const key = normalizeStoneRateLookupKey({
+        stoneType: rate.stoneType,
+        grade: rate.grade,
+        unit: rate.unit,
+      })
+      if (!currentByKey.has(key)) currentByKey.set(key, rate)
+    }
+    context.currentStoneRatesByKey = currentByKey
+  }
+  context.referencedStoneRatesById = referencedRateCache
 
   const breakup = []
   for (const stone of stones) {
@@ -63,7 +99,7 @@ async function loadLiveStoneBreakup(variantId, session) {
     }
 
     if (stone.stoneRateId) {
-      const referenced = await StoneRate.findById(stone.stoneRateId).session(session || null)
+      const referenced = referencedRateCache.get(String(stone.stoneRateId))
       if (!referenced) {
         throw new AppError(409, 'STONE_RATE_ORPHAN', 'Referenced stone_rate_id no longer exists', {
           stone_rate_id: String(stone.stoneRateId),
@@ -78,11 +114,7 @@ async function loadLiveStoneBreakup(variantId, session) {
       }
     }
 
-    const candidates = await StoneRate.find({ isCurrent: true, unit }).sort({ effectiveAt: -1 }).session(session || null)
-    const rate = candidates.find((row) => (
-      normalizeStoneKey(row.stoneType) === normalizeStoneKey(stoneType)
-      && normalizeStoneKey(row.grade || '') === normalizeStoneKey(grade || '')
-    )) || null
+    const rate = currentByKey.get(normalizeStoneRateLookupKey({ stoneType, grade, unit })) || null
 
     if (!rate || !(Number(rate.rate) > 0)) {
       throw new AppError(
@@ -123,13 +155,24 @@ async function loadLiveStoneBreakup(variantId, session) {
 
 export async function getPriceBreakup(variantId, qty = 1, rateMap = null, options = {}) {
   const session = options.session || null
-  const variant = await Variant.findOne({ _id: variantId, isActive: true }).session(session)
+  const shared = options.sharedContext || null
+  const variant = options.variantDoc
+    || await Variant.findOne({ _id: variantId, isActive: true }).session(session).lean()
   if (!variant) throw new AppError(404, 'VARIANT_NOT_FOUND', 'Product variant not found')
 
-  const [product, tax] = await Promise.all([
-    Product.findById(variant.productId).session(session),
-    TaxSetting.findOne({ singleton: 'default' }).session(session),
-  ])
+  let product = null
+  const productKey = String(variant.productId)
+  if (shared?.productsById?.has(productKey)) {
+    product = shared.productsById.get(productKey)
+  } else {
+    product = await Product.findById(variant.productId).session(session).lean()
+    if (shared?.productsById) shared.productsById.set(productKey, product || null)
+  }
+  let tax = shared?.taxDoc
+  if (!tax) {
+    tax = await TaxSetting.findOne({ singleton: 'default' }).session(session).lean()
+    if (shared) shared.taxDoc = tax || null
+  }
   if (!product || product.status !== 'active') {
     throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found or not available for sale')
   }
@@ -138,7 +181,12 @@ export async function getPriceBreakup(variantId, qty = 1, rateMap = null, option
   let goldRate = rateMap?.[purity]
   let goldRateDoc = null
   if (goldRate == null) {
-    goldRateDoc = await GoldRate.findOne({ purity, isCurrent: true }).sort({ effectiveAt: -1 }).session(session)
+    if (shared?.goldRatesByPurity?.has(purity)) {
+      goldRateDoc = shared.goldRatesByPurity.get(purity)
+    } else {
+      goldRateDoc = await GoldRate.findOne({ purity, isCurrent: true }).sort({ effectiveAt: -1 }).session(session).lean()
+      if (shared?.goldRatesByPurity) shared.goldRatesByPurity.set(purity, goldRateDoc || null)
+    }
     goldRate = goldRateDoc?.ratePerGram
   }
   const useFixedPrice = !options.ignoreFixedPrice && variant.fixedPrice > 0
@@ -146,12 +194,12 @@ export async function getPriceBreakup(variantId, qty = 1, rateMap = null, option
     throw new AppError(409, 'GOLD_RATE_MISSING', `Current ${purity} gold rate is unavailable`)
   }
 
-  const stoneBreakup = await loadLiveStoneBreakup(variant.id, session)
-  const variantForBreakup = { ...variant.toObject?.() || variant, purity }
-  const productForBreakup = { ...product.toObject?.() || product, purity: product.purity ? normalizePurity(product.purity, { optional: true }) || product.purity : purity }
+  const stoneBreakup = await loadLiveStoneBreakup(String(variant._id), session, shared || {})
+  const variantForBreakup = { ...variant, purity }
+  const productForBreakup = { ...product, purity: product.purity ? normalizePurity(product.purity, { optional: true }) || product.purity : purity }
   return {
-    variant_id: variant.id,
-    product_id: product.id,
+    variant_id: String(variant._id),
+    product_id: String(product._id),
     purity,
     ...calculateBreakup({
       variant: variantForBreakup,
@@ -164,6 +212,95 @@ export async function getPriceBreakup(variantId, qty = 1, rateMap = null, option
       goldRateEffectiveAt: goldRateDoc?.effectiveAt || null,
     }),
   }
+}
+
+export async function getPriceBreakups(variantIds = []) {
+  const ids = [...new Set(
+    (Array.isArray(variantIds) ? variantIds : [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => /^[a-f\d]{24}$/i.test(id)),
+  )]
+  if (!ids.length) return []
+  const variants = await Variant.find({ _id: { $in: ids }, isActive: true }).lean()
+  const variantsById = new Map(variants.map((variant) => [String(variant._id), variant]))
+  const sharedContext = {
+    productsById: new Map(),
+    goldRatesByPurity: new Map(),
+    currentStoneRatesByKey: new Map(),
+    referencedStoneRatesById: new Map(),
+    taxDoc: null,
+  }
+  const rows = await Promise.all(ids.map(async (variantId) => {
+    try {
+      const breakup = await getPriceBreakup(variantId, 1, null, {
+        variantDoc: variantsById.get(variantId),
+        sharedContext,
+      })
+      return {
+        variant_id: variantId,
+        total: breakup.total ?? null,
+      }
+    } catch {
+      return {
+        variant_id: variantId,
+        total: null,
+      }
+    }
+  }))
+  return rows
+}
+
+/**
+ * Fast listing prices: avoids per-variant live stone-rate queries.
+ * Uses variant/product stored stone and making charges with latest gold/tax.
+ */
+export async function getListingPriceTotals(variantIds = []) {
+  const ids = [...new Set(
+    (Array.isArray(variantIds) ? variantIds : [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => /^[a-f\d]{24}$/i.test(id)),
+  )]
+  if (!ids.length) return []
+
+  const variants = await Variant.find({ _id: { $in: ids }, isActive: true }).lean()
+  const variantsById = new Map(variants.map((variant) => [String(variant._id), variant]))
+  const productIds = [...new Set(variants.map((variant) => String(variant.productId)).filter(Boolean))]
+  const [products, tax] = await Promise.all([
+    productIds.length ? Product.find({ _id: { $in: productIds }, status: 'active' }).lean() : Promise.resolve([]),
+    TaxSetting.findOne({ singleton: 'default' }).lean(),
+  ])
+  const productsById = new Map(products.map((product) => [String(product._id), product]))
+
+  const purities = [...new Set(variants.map((variant) => {
+    const product = productsById.get(String(variant.productId))
+    return normalizePurity(variant.purity || product?.purity || '22k')
+  }))]
+  const goldRates = await GoldRate.find({ isCurrent: true, purity: { $in: purities } }).sort({ effectiveAt: -1 }).lean()
+  const goldRateByPurity = new Map()
+  for (const rate of goldRates) {
+    if (!goldRateByPurity.has(rate.purity)) goldRateByPurity.set(rate.purity, rate)
+  }
+
+  return ids.map((variantId) => {
+    const variant = variantsById.get(variantId)
+    if (!variant) return { variant_id: variantId, total: null }
+    const product = productsById.get(String(variant.productId))
+    if (!product) return { variant_id: variantId, total: null }
+    try {
+      const purity = normalizePurity(variant.purity || product.purity || '22k')
+      const goldRate = Number(goldRateByPurity.get(purity)?.ratePerGram || 0)
+      const breakup = calculateBreakup({
+        variant: { ...variant, purity },
+        product: { ...product, purity },
+        tax,
+        goldRate,
+        qty: 1,
+      })
+      return { variant_id: variantId, total: breakup.total ?? null }
+    } catch {
+      return { variant_id: variantId, total: null }
+    }
+  })
 }
 
 export async function validateCoupon(codeInput, orderTotal, customerId) {

@@ -9,13 +9,54 @@ import { getPriceBreakup } from './pricing.service.js'
 
 export async function listCart(customerId) {
   const rows = await CartItem.find({ customerId }).sort({ addedAt: -1 }).lean()
-  return Promise.all(rows.map(async (row) => {
-    const variant = await Variant.findById(row.variantId).lean()
+  if (!rows.length) return []
+
+  const variantIds = [...new Set(rows.map((row) => String(row.variantId)).filter(Boolean))]
+  const variants = await Variant.find({ _id: { $in: variantIds } }).lean()
+  const variantById = new Map(variants.map((variant) => [String(variant._id), variant]))
+  const productIds = [...new Set(variants.map((variant) => String(variant.productId)).filter(Boolean))]
+
+  const [products, images, productVariants] = await Promise.all([
+    productIds.length ? Product.find({ _id: { $in: productIds } }).lean() : Promise.resolve([]),
+    productIds.length ? ProductImage.find({ productId: { $in: productIds } }).sort({ displayOrder: 1 }).lean() : Promise.resolve([]),
+    productIds.length ? Variant.find({ productId: { $in: productIds }, isActive: true }).sort({ weightGrams: 1 }).lean() : Promise.resolve([]),
+  ])
+  const productById = new Map(products.map((product) => [String(product._id), product]))
+  const imagesByProduct = new Map()
+  for (const image of images) {
+    const key = String(image.productId)
+    if (!imagesByProduct.has(key)) imagesByProduct.set(key, [])
+    imagesByProduct.get(key).push(image)
+  }
+  const variantsByProduct = new Map()
+  for (const variant of productVariants) {
+    const key = String(variant.productId)
+    if (!variantsByProduct.has(key)) variantsByProduct.set(key, [])
+    variantsByProduct.get(key).push(variant)
+  }
+
+  return rows.map((row) => {
+    const variant = variantById.get(String(row.variantId))
     if (!variant) return { ...row, product_variants: null }
-    const [product, images, variants] = await Promise.all([Product.findById(variant.productId).lean(), ProductImage.find({ productId: variant.productId }).sort({ displayOrder: 1 }).lean(), Variant.find({ productId: variant.productId, isActive: true }).sort({ weightGrams: 1 }).lean()])
-    const mappedImages = images.map((image) => ({ ...image, url: image.imageUrl, alt: image.altText }))
-    return { ...row, product_variants: { ...variant, products: product ? { ...product, product_images: mappedImages, primary_image: images.find((image) => image.isPrimary)?.imageUrl || images[0]?.imageUrl || null, product_variants: variants } : null } }
-  }))
+    const productId = String(variant.productId)
+    const product = productById.get(productId)
+    const imageRows = imagesByProduct.get(productId) || []
+    const mappedImages = imageRows.map((image) => ({ ...image, url: image.imageUrl, alt: image.altText }))
+    return {
+      ...row,
+      product_variants: {
+        ...variant,
+        products: product
+          ? {
+              ...product,
+              product_images: mappedImages,
+              primary_image: imageRows.find((image) => image.isPrimary)?.imageUrl || imageRows[0]?.imageUrl || null,
+              product_variants: variantsByProduct.get(productId) || [],
+            }
+          : null,
+      },
+    }
+  })
 }
 
 function readCustomizationFromPayload(payload) {
@@ -134,12 +175,43 @@ export const clearCart = (customerId) => CartItem.deleteMany({ customerId })
 
 export async function listWishlist(customerId) {
   const rows = await WishlistItem.find({ customerId }).sort({ createdAt: -1 }).lean()
-  return Promise.all(rows.map(async (row) => {
-    const product = await Product.findById(row.productId).lean()
+  if (!rows.length) return []
+
+  const productIds = [...new Set(rows.map((row) => String(row.productId)).filter(Boolean))]
+  const [products, images, variants] = await Promise.all([
+    productIds.length ? Product.find({ _id: { $in: productIds } }).lean() : Promise.resolve([]),
+    productIds.length ? ProductImage.find({ productId: { $in: productIds } }).sort({ displayOrder: 1 }).lean() : Promise.resolve([]),
+    productIds.length ? Variant.find({ productId: { $in: productIds }, isActive: true }).sort({ weightGrams: 1 }).lean() : Promise.resolve([]),
+  ])
+  const productById = new Map(products.map((product) => [String(product._id), product]))
+  const imagesByProduct = new Map()
+  for (const image of images) {
+    const key = String(image.productId)
+    if (!imagesByProduct.has(key)) imagesByProduct.set(key, [])
+    imagesByProduct.get(key).push(image)
+  }
+  const variantsByProduct = new Map()
+  for (const variant of variants) {
+    const key = String(variant.productId)
+    if (!variantsByProduct.has(key)) variantsByProduct.set(key, [])
+    variantsByProduct.get(key).push(variant)
+  }
+
+  return rows.map((row) => {
+    const productId = String(row.productId)
+    const product = productById.get(productId)
     if (!product) return { ...row, products: null }
-    const [images, variants] = await Promise.all([ProductImage.find({ productId: product._id }).sort({ displayOrder: 1 }).lean(), Variant.find({ productId: product._id, isActive: true }).sort({ weightGrams: 1 }).lean()])
-    return { ...row, products: { ...product, product_images: images.map((image) => ({ ...image, url: image.imageUrl, alt: image.altText })), primary_image: images.find((image) => image.isPrimary)?.imageUrl || images[0]?.imageUrl || null, product_variants: variants } }
-  }))
+    const imageRows = imagesByProduct.get(productId) || []
+    return {
+      ...row,
+      products: {
+        ...product,
+        product_images: imageRows.map((image) => ({ ...image, url: image.imageUrl, alt: image.altText })),
+        primary_image: imageRows.find((image) => image.isPrimary)?.imageUrl || imageRows[0]?.imageUrl || null,
+        product_variants: variantsByProduct.get(productId) || [],
+      },
+    }
+  })
 }
 export const addWishlist = (customerId, productId) => WishlistItem.findOneAndUpdate({ customerId, productId }, { $setOnInsert: { customerId, productId } }, { upsert: true, new: true })
 export const removeWishlist = (customerId, productId) => WishlistItem.deleteOne({ customerId, productId })

@@ -48,6 +48,7 @@ export function toCustomerOrderDto(order, { returns = [], displayImageByProductI
     invoice_number: data.invoice_number ?? null,
     status: data.status,
     payment_method: data.payment_method,
+    payment_provider: data.payment_provider ?? null,
     payment_mode: data.payment_mode,
     payment_status: data.payment_status,
     pricing_mode: data.pricing_mode,

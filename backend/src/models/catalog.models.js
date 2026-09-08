@@ -75,6 +75,8 @@ const productSchema = new Schema({
   ratingAvg: { type: Number, min: 0, max: 5, default: 0 }, ratingCount: { type: Number, min: 0, default: 0 }, displayOrder: { type: Number, default: 0 },
 }, { timestamps: true })
 productSchema.index({ status: 1, categoryId: 1, displayOrder: 1, createdAt: -1 })
+productSchema.index({ status: 1, brandId: 1, displayOrder: 1, createdAt: -1 })
+productSchema.index({ status: 1, isFeatured: 1, displayOrder: 1, createdAt: -1 })
 
 const variantSchema = new Schema({
   productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true, index: true }, sku: { type: String, unique: true, sparse: true },
@@ -86,6 +88,7 @@ const variantSchema = new Schema({
   isActive: { type: Boolean, default: true }, metadata: { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true })
 variantSchema.index({ stockQty: 1, lowStockThreshold: 1 })
+variantSchema.index({ productId: 1, isActive: 1, weightGrams: 1 })
 variantSchema.index(
   { 'metadata.idempotencyKey': 1 },
   {
@@ -98,6 +101,7 @@ variantSchema.index(
 
 const productImageSchema = new Schema({ productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true, index: true }, variantId: { type: Schema.Types.ObjectId, ref: 'Variant' }, imageUrl: { type: String, required: true }, altText: String, displayOrder: { type: Number, default: 0 }, isPrimary: { type: Boolean, default: false } }, { timestamps: { createdAt: true, updatedAt: false } })
 productImageSchema.index({ productId: 1 }, { unique: true, partialFilterExpression: { isPrimary: true }, name: 'productimages_primary_unique' })
+productImageSchema.index({ productId: 1, displayOrder: 1, createdAt: 1 })
 const productStoneSchema = new Schema({
   variantId: { type: Schema.Types.ObjectId, ref: 'Variant', required: true, index: true },
   stoneRateId: { type: Schema.Types.ObjectId, ref: 'StoneRate', default: null },
@@ -115,6 +119,7 @@ const productStoneSchema = new Schema({
   manualCharge: { type: Number, min: 0, default: null },
   displayOrder: { type: Number, default: 0 },
 }, { timestamps: { createdAt: true, updatedAt: false } })
+productStoneSchema.index({ variantId: 1, displayOrder: 1 })
 productStoneSchema.pre('validate', function validateStoneInvariants(next) {
   const unit = this.unit === 'carat' ? 'carat' : 'piece'
   const mode = this.pricingMode === 'fixed' ? 'fixed' : 'rate'
@@ -161,6 +166,7 @@ const bannerSchema = new Schema({
   startsAt: Date,
   endsAt: Date,
 }, { timestamps: true })
+bannerSchema.index({ isActive: 1, position: 1, startsAt: 1, endsAt: 1, displayOrder: 1, createdAt: -1 })
 const cmsPageSchema = new Schema({ slug: { type: String, required: true, unique: true }, title: String, titleAr: String, content: String, contentAr: String, isPublished: { type: Boolean, default: false } }, { timestamps: true })
 
 export const StoreSetting = models.StoreSetting || model('StoreSetting', storeSettingSchema)

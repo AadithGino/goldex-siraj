@@ -113,6 +113,64 @@ describe('gold scheme maturity safety', () => {
     expect(refreshed.payoutAmount).toBe(expected)
   })
 
+  it('auto-credits wallet when the last installment is paid after maturity', async () => {
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
+    await SchemeEnrollment.updateOne(
+      { _id: enrollment.id },
+      { $set: { maturityAt: new Date(Date.now() - 86_400_000) } },
+    )
+    enrollment = await SchemeEnrollment.findById(enrollment.id)
+    for (let i = 0; i < enrollment.installments.length - 1; i += 1) {
+      await schemeService.recordInstallment(enrollment.id, enrollment.installments[i].id, {
+        amount: enrollment.installments[i].amount,
+        payment_method: 'cash',
+        transaction_ref: null,
+      }, manager.id)
+      enrollment = await SchemeEnrollment.findById(enrollment.id)
+    }
+    expect(await walletService.balance(customer.id)).toBe(0)
+
+    const last = enrollment.installments[enrollment.installments.length - 1]
+    await schemeService.recordInstallment(enrollment.id, last.id, {
+      amount: last.amount,
+      payment_method: 'cash',
+      transaction_ref: null,
+    }, manager.id)
+
+    const expected = 100 * (2 + 1)
+    expect(await walletService.balance(customer.id)).toBeCloseTo(expected, 2)
+    const refreshed = await SchemeEnrollment.findById(enrollment.id)
+    expect(refreshed.status).toBe('completed')
+    expect(refreshed.payoutAmount).toBe(expected)
+  })
+
+  it('auto-credits wallet when maturity is reached after all installments are paid', async () => {
+    let enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
+    enrollment = await payAll(enrollment, manager.id)
+    expect(enrollment.status).toBe('active')
+    await SchemeEnrollment.updateOne(
+      { _id: enrollment.id },
+      { $set: { maturityAt: new Date(Date.now() - 86_400_000) } },
+    )
+
+    await schemeService.tryAutoCompleteEnrollment(enrollment.id, null)
+
+    const expected = 100 * (2 + 1)
+    expect(await walletService.balance(customer.id)).toBeCloseTo(expected, 2)
+    const refreshed = await SchemeEnrollment.findById(enrollment.id)
+    expect(refreshed.status).toBe('completed')
+  })
+
+  it('does not auto-complete before maturity even when all installments are paid', async () => {
+    const enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
+    await payAll(enrollment, manager.id)
+    const result = await schemeService.tryAutoCompleteEnrollment(enrollment.id, null)
+    expect(result).toBeNull()
+    expect(await walletService.balance(customer.id)).toBe(0)
+    const refreshed = await SchemeEnrollment.findById(enrollment.id)
+    expect(refreshed.status).toBe('active')
+  })
+
   it('cancels unpaid future installments on enrollment cancel', async () => {
     const enrollment = await schemeService.enroll(customer.id, scheme.id, TEST_IDENTITY)
     await schemeService.recordInstallment(enrollment.id, enrollment.installments[0].id, {

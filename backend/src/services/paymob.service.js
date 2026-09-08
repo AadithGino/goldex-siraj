@@ -6,6 +6,12 @@ function normalizeBaseUrl(url) {
   return String(url || "").replace(/\/+$/, "");
 }
 
+function buildWebhookBaseUrl() {
+  const base = normalizeBaseUrl(config.publicApiUrl);
+  if (!base) return "";
+  return /\/api\/v1$/i.test(base) ? base : `${base}/api/v1`;
+}
+
 export function getPaymobConfig() {
   const baseUrl = normalizeBaseUrl(config.paymob.baseUrl);
   const integrationId = Number(config.paymob.integrationId);
@@ -170,7 +176,7 @@ export async function createPaymobIntention({
   }
 
   const appOrigin = config.clientOrigins[0] || "http://localhost:5173";
-  const apiOrigin = config.publicApiUrl.replace(/\/+$/, "");
+  const webhookBaseUrl = buildWebhookBaseUrl();
   const reference = specialReference || buildPaymobSpecialReference(order.id);
 
   const items = (order.items || []).slice(0, 20).map((item, index) => {
@@ -205,7 +211,7 @@ export async function createPaymobIntention({
       order_number: order.orderNumber,
       goldex_order_id: String(order.id),
     },
-    notification_url: `${apiOrigin}/api/v1/webhooks/paymob`,
+    notification_url: `${webhookBaseUrl}/webhooks/paymob`,
     redirection_url: `${appOrigin}/orders/${order.id}?payment=return`,
     expiration: 1800,
   };

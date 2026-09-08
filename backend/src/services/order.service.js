@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { config } from '../config/env.js'
 import { Counter } from '../models/audit.models.js'
 import { ProductImage, StoreSetting, Variant } from '../models/catalog.models.js'
 import { Address, CartItem, Coupon, Order, PaymentEvent, ReturnRequest } from '../models/commerce.models.js'
@@ -13,6 +14,17 @@ import { calculateCartTotals, getPriceBreakup, validateCoupon } from './pricing.
 import { allocatePaidAmounts } from './refund.service.js'
 import * as walletService from './wallet.service.js'
 import { createPaymobIntention, buildPaymobSpecialReference, getPaymobConfig, inquirePaymobTransaction, isPaymobPendingFlag, isPaymobSuccessFlag, paymobTransactionBelongsToOrder, resolveGoldexOrderId, verifyPaymobRedirectHmac } from './paymob.service.js'
+import {
+  buildTabbyReference,
+  createTabbyCheckout,
+  extractTabbyPaymentData,
+  getTabbyCheckout,
+  getTabbyConfig,
+  getTabbyPayment,
+  isTabbyPendingStatus,
+  isTabbySuccessStatus,
+  resolveGoldexOrderIdFromTabbyReference,
+} from './tabby.service.js'
 import { logger } from '../config/logger.js'
 
 function escapeRegex(value) {
@@ -40,6 +52,34 @@ function assertCheckoutLimits(settings, paymentMethod, orderTotal) {
       throw new AppError(409, 'COD_ABOVE_MAXIMUM', `Cash on delivery is limited to AED ${Number(codMax).toFixed(2)}`, { cod_max_order_amount: Number(codMax), order_total: total })
     }
   }
+}
+
+function resolveOnlineProvider(requested = null) {
+  const preferred = requested || config.onlinePaymentProvider || 'auto'
+  const paymob = getPaymobConfig()
+  const tabby = getTabbyConfig()
+
+  if (preferred === 'paymob') {
+    if (paymob.isConfigured) return 'paymob'
+    if (tabby.isConfigured) return 'tabby'
+    return null
+  }
+  if (preferred === 'tabby') {
+    if (tabby.isConfigured) return 'tabby'
+    if (paymob.isConfigured) return 'paymob'
+    return null
+  }
+  if (tabby.isConfigured) return 'tabby'
+  if (paymob.isConfigured) return 'paymob'
+  return null
+}
+
+function inferProviderFromConfirmQuery(query = {}) {
+  const providerHint = String(query.provider || '').trim().toLowerCase()
+  if (providerHint === 'tabby' || providerHint === 'paymob') return providerHint
+  if (query.hmac || query.amount_cents || query.merchant_order_id || query.integration_id) return 'paymob'
+  if (query.payment_id || query.checkout_id || query.paymentId || query.checkoutId) return 'tabby'
+  return null
 }
 
 async function resolveProductImageUrl(productId, variantId, session) {
@@ -212,12 +252,18 @@ export async function placeOrder(customerId, input) {
   const settings = await StoreSetting.findOne({ singleton: 'default' })
   if (paymentMethod === 'cod' && settings && !settings.codEnabled) throw new AppError(409, 'COD_DISABLED', 'Cash on delivery is unavailable')
   if (paymentMethod === 'manual' && settings && !settings.bankTransferEnabled) throw new AppError(409, 'BANK_TRANSFER_DISABLED', 'Bank transfer is unavailable')
+  const requestedOnlineProvider = input.payment_provider === 'tabby'
+    ? 'tabby'
+    : input.payment_provider === 'paymob'
+      ? 'paymob'
+      : null
+
   if (paymentMethod === 'online') {
     if (settings && !settings.onlinePaymentEnabled) {
       throw new AppError(409, 'ONLINE_PAYMENT_DISABLED', 'Online payment is unavailable')
     }
-    if (!getPaymobConfig().isConfigured) {
-      throw new AppError(503, 'PAYMOB_NOT_CONFIGURED', 'Online payment is not configured')
+    if (!resolveOnlineProvider(requestedOnlineProvider)) {
+      throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
     }
   }
 
@@ -321,13 +367,29 @@ export async function placeOrder(customerId, input) {
         await CartItem.deleteMany({ customerId }, { session })
         if (paymentMethod === 'online') {
           const customer = await Customer.findById(customerId).session(session)
-          const specialReference = buildPaymobSpecialReference(order.id)
-          const paymob = await createPaymobIntention({ order, customer, specialReference })
-          order.paymobIntentionId = paymob.intentionId
-          order.paymobOrderId = paymob.paymobOrderId
-          order.paymobSpecialReference = paymob.specialReference
-          await order.save({ session })
-          order.checkoutUrl = paymob.checkoutUrl
+          const provider = resolveOnlineProvider(requestedOnlineProvider)
+          if (!provider) {
+            throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
+          }
+          if (provider === 'tabby') {
+            const reference = buildTabbyReference(order.id)
+            const tabby = await createTabbyCheckout({ order, customer, reference })
+            order.tabbyCheckoutId = tabby.checkoutId
+            order.tabbyPaymentId = tabby.paymentId
+            order.tabbyReference = tabby.reference
+            order.paymentProvider = 'tabby'
+            await order.save({ session })
+            order.checkoutUrl = tabby.checkoutUrl
+          } else {
+            const specialReference = buildPaymobSpecialReference(order.id)
+            const paymob = await createPaymobIntention({ order, customer, specialReference })
+            order.paymobIntentionId = paymob.intentionId
+            order.paymobOrderId = paymob.paymobOrderId
+            order.paymobSpecialReference = paymob.specialReference
+            order.paymentProvider = 'paymob'
+            await order.save({ session })
+            order.checkoutUrl = paymob.checkoutUrl
+          }
         }
         return order
       })
@@ -712,6 +774,8 @@ export async function applyOnlinePaymentFromProvider(orderId, { transactionId, a
   const session = await mongoose.startSession()
   try {
     return await session.withTransaction(async () => {
+      const provider = String(payload?.provider || 'paymob').trim().toLowerCase()
+      const providerLabel = provider === 'tabby' ? 'Tabby' : 'Paymob'
       const order = await Order.findById(orderId).session(session)
       if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
       if (order.paymentStatus === 'paid') return order
@@ -749,21 +813,22 @@ export async function applyOnlinePaymentFromProvider(orderId, { transactionId, a
           expectedAmount,
           currency: 'AED',
           transactionRef: String(transactionId),
-          note: 'Paymob online payment',
+          note: `${providerLabel} online payment`,
           verifiedAt: new Date(),
         },
       })
+      if (!order.paymentProvider) order.paymentProvider = provider
       allocatePaidAmounts(order)
       if (order.status === 'placed') {
         order.status = 'confirmed'
-        order.statusHistory.push({ status: 'confirmed', note: 'Online payment received via Paymob' })
+        order.statusHistory.push({ status: 'confirmed', note: `Online payment received via ${providerLabel}` })
       }
 
-      const eventId = `paymob:${transactionId}`
+      const eventId = `${provider}:${transactionId}`
       try {
         await PaymentEvent.create([{
           orderId: order.id,
-          provider: 'paymob',
+          provider,
           eventType: 'payment_captured',
           transactionId: eventId,
           amount: collectedAmount,
@@ -773,7 +838,8 @@ export async function applyOnlinePaymentFromProvider(orderId, { transactionId, a
             pricing_mode: order.pricingMode,
             expected_amount: expectedAmount,
             collected_amount: collectedAmount,
-            paymob: payload,
+            provider,
+            provider_payload: payload,
           },
           processedAt: new Date(),
         }], { session })
@@ -801,8 +867,36 @@ export async function createPaymobCheckoutForOrder(customerId, orderId) {
   order.paymobIntentionId = paymob.intentionId
   order.paymobOrderId = paymob.paymobOrderId
   order.paymobSpecialReference = paymob.specialReference
+  order.paymentProvider = 'paymob'
   await order.save()
   return { checkout_url: paymob.checkoutUrl }
+}
+
+export async function createTabbyCheckoutForOrder(customerId, orderId) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  if (order.paymentMethod !== 'online') throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
+  if (order.paymentStatus === 'paid') throw new AppError(409, 'ORDER_ALREADY_PAID', 'Order is already paid')
+  if (!getTabbyConfig().isConfigured) throw new AppError(503, 'TABBY_NOT_CONFIGURED', 'Tabby is not configured')
+
+  const customer = await Customer.findById(customerId)
+  const reference = buildTabbyReference(order.id)
+  const tabby = await createTabbyCheckout({ order, customer, reference })
+  order.tabbyCheckoutId = tabby.checkoutId
+  order.tabbyPaymentId = tabby.paymentId
+  order.tabbyReference = tabby.reference
+  order.paymentProvider = 'tabby'
+  await order.save()
+  return { checkout_url: tabby.checkoutUrl }
+}
+
+export async function createOnlineCheckoutForOrder(customerId, orderId) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  const provider = order.paymentProvider || resolveOnlineProvider(null)
+  if (provider === 'tabby') return createTabbyCheckoutForOrder(customerId, orderId)
+  if (provider === 'paymob') return createPaymobCheckoutForOrder(customerId, orderId)
+  throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
 }
 
 /**
@@ -843,7 +937,7 @@ export async function confirmPaymobRedirectPayment(customerId, orderId, query = 
     return applyOnlinePaymentFromProvider(order.id, {
       transactionId: String(transactionId),
       amount: amountCents / 100,
-      payload: { source, ...query },
+      payload: { provider: 'paymob', source, ...query },
     })
   }
 
@@ -880,6 +974,72 @@ export async function confirmPaymobRedirectPayment(customerId, orderId, query = 
   return applyOnlinePaymentFromProvider(order.id, {
     transactionId: String(txn.id),
     amount: amountCents / 100,
-    payload: { source: 'inquiry', redirect: query, transaction: txn },
+    payload: { provider: 'paymob', source: 'inquiry', redirect: query, transaction: txn },
   })
+}
+
+export async function confirmTabbyRedirectPayment(customerId, orderId, query = {}) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  if (order.paymentStatus === 'paid') return order
+  if (order.paymentMethod !== 'online') {
+    throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
+  }
+  if (!getTabbyConfig().isConfigured) {
+    throw new AppError(503, 'TABBY_NOT_CONFIGURED', 'Tabby is not configured')
+  }
+
+  const paymentId = query.payment_id || query.paymentId || order.tabbyPaymentId || null
+  const checkoutId = query.checkout_id || query.checkoutId || order.tabbyCheckoutId || null
+  const inquired = paymentId
+    ? await getTabbyPayment(paymentId)
+    : await getTabbyCheckout(checkoutId)
+
+  if (!inquired) {
+    throw new AppError(400, 'TABBY_CONFIRMATION_FAILED', 'Could not verify Tabby payment status')
+  }
+
+  const payment = extractTabbyPaymentData(inquired)
+  if (!payment.id) {
+    throw new AppError(422, 'TRANSACTION_REQUIRED', 'Missing Tabby transaction id')
+  }
+  if (isTabbyPendingStatus(payment.status)) {
+    throw new AppError(409, 'PAYMENT_PENDING', 'Tabby payment is still pending')
+  }
+  if (!isTabbySuccessStatus(payment.status)) {
+    throw new AppError(409, 'PAYMENT_NOT_SUCCESSFUL', 'Tabby payment was not successful')
+  }
+
+  const refOrderId = resolveGoldexOrderIdFromTabbyReference(payment.orderReference)
+  if (refOrderId && refOrderId !== String(order.id)) {
+    throw new AppError(409, 'ORDER_MISMATCH', 'Payment confirmation does not match this order')
+  }
+
+  if (!Number.isFinite(payment.amount) || payment.amount <= 0) {
+    throw new AppError(422, 'INVALID_AMOUNT', 'Missing payment amount')
+  }
+
+  order.tabbyPaymentId = payment.id
+  if (payment.checkoutId) order.tabbyCheckoutId = payment.checkoutId
+  await order.save()
+
+  return applyOnlinePaymentFromProvider(order.id, {
+    transactionId: String(payment.id),
+    amount: payment.amount,
+    payload: { provider: 'tabby', source: 'redirect', redirect: query, payment: inquired },
+  })
+}
+
+export async function confirmOnlineRedirectPayment(customerId, orderId, query = {}) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  const provider = inferProviderFromConfirmQuery(query)
+    || order.paymentProvider
+    || resolveOnlineProvider()
+    || 'paymob'
+
+  if (provider === 'tabby') {
+    return confirmTabbyRedirectPayment(customerId, orderId, query)
+  }
+  return confirmPaymobRedirectPayment(customerId, orderId, query)
 }

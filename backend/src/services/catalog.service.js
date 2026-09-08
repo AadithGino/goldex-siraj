@@ -9,7 +9,9 @@ import { deserialize } from '../utils/serialize.js'
 import { assertVariantWeights } from './address.dto.js'
 import { assertCatalogWriteNotEmpty, toCatalogWriteDto } from './catalog.dto.js'
 import { getPaymobConfig } from './paymob.service.js'
+import { getTabbyConfig } from './tabby.service.js'
 import { applyStockDelta } from './inventory.service.js'
+import { getListingPriceTotals } from './pricing.service.js'
 import { stableStringify } from '../validators/numeric.js'
 
 function isDuplicateKey(error) {
@@ -96,12 +98,12 @@ export async function list(resource, query = {}, admin = false) {
   }
   const { page, limit, skip } = parsePagination(mapped, { defaultLimit: 50, maxLimit: 100 })
   const [rows, total] = await Promise.all([
-    Model.find(filter).sort({ displayOrder: 1, createdAt: -1 }).skip(skip).limit(limit),
+    Model.find(filter).sort({ displayOrder: 1, createdAt: -1 }).skip(skip).limit(limit).lean(),
     Model.countDocuments(filter),
   ])
   const hydrate = String(mapped.hydrate || '') === '1' || mapped.hydrate === true || mapped.hydrate === 'true'
   let items = hydrate && resource === 'products'
-    ? await Promise.all(rows.map((row) => hydrateProduct(row, admin)))
+    ? await hydrateProductsBatch(rows, admin)
     : rows
   if (resource === 'cms-pages') {
     items = items.map((row) => {
@@ -117,6 +119,81 @@ export async function list(resource, query = {}, admin = false) {
     items = items.map((row) => toPublicCertificate(row))
   }
   return { items, ...paginationMeta(page, limit, total) }
+}
+
+async function hydrateProductsBatch(rows, admin = false) {
+  if (!rows.length) return []
+  const productIds = rows.map((row) => String(row._id || row.id))
+  const categoryIds = [...new Set(rows.map((row) => row.categoryId).filter(Boolean).map((id) => String(id)))]
+  const brandIds = [...new Set(rows.map((row) => row.brandId).filter(Boolean).map((id) => String(id)))]
+
+  const variants = await Variant.find({
+    productId: { $in: productIds },
+    ...(admin ? {} : { isActive: true }),
+  }).sort({ weightGrams: 1 }).lean()
+  const variantIds = variants.map((row) => String(row._id || row.id))
+  const priceRows = variantIds.length ? await getListingPriceTotals(variantIds) : []
+
+  const [images, certificates, categories, brands] = await Promise.all([
+    ProductImage.find({ productId: { $in: productIds } }).sort({ displayOrder: 1, createdAt: 1 }).lean(),
+    Certificate.find({ productId: { $in: productIds } }).lean(),
+    categoryIds.length ? Category.find({ _id: { $in: categoryIds } }).lean() : Promise.resolve([]),
+    brandIds.length ? Brand.find({ _id: { $in: brandIds } }).lean() : Promise.resolve([]),
+  ])
+
+  const variantsByProduct = new Map()
+  for (const variant of variants) {
+    const key = String(variant.productId)
+    if (!variantsByProduct.has(key)) variantsByProduct.set(key, [])
+    variantsByProduct.get(key).push(variant)
+  }
+  const imagesByProduct = new Map()
+  for (const image of images) {
+    const key = String(image.productId)
+    if (!imagesByProduct.has(key)) imagesByProduct.set(key, [])
+    imagesByProduct.get(key).push(image)
+  }
+  const certsByProduct = new Map()
+  for (const cert of certificates) {
+    const key = String(cert.productId)
+    if (!certsByProduct.has(key)) certsByProduct.set(key, [])
+    certsByProduct.get(key).push(cert)
+  }
+  const priceByVariantId = new Map(priceRows.map((row) => [String(row.variant_id), row.total]))
+
+  const categoryById = new Map(categories.map((category) => [String(category._id || category.id), category]))
+  const brandById = new Map(brands.map((brand) => [String(brand._id || brand.id), brand]))
+
+  return rows.map((row) => {
+    const plain = row
+    const productId = String(plain._id || plain.id)
+    const productVariants = variantsByProduct.get(productId) || []
+    const variantsWithStones = productVariants.map((variant) => ({
+      ...variant,
+      product_stones: [],
+      livePriceTotal: priceByVariantId.get(String(variant._id || variant.id)) ?? null,
+    }))
+    const imageRows = imagesByProduct.get(productId) || []
+    const certRows = certsByProduct.get(productId) || []
+    const category = plain.categoryId ? categoryById.get(String(plain.categoryId)) || null : null
+    const brand = plain.brandId ? brandById.get(String(plain.brandId)) || null : null
+
+    return {
+      ...plain,
+      variants: variantsWithStones,
+      images: imageRows,
+      product_variants: variantsWithStones,
+      product_images: imageRows,
+      certificates: admin ? certRows : certRows.map((c) => toPublicCertificate(c)),
+      category,
+      brand,
+      categories: category,
+      brands: brand,
+      occasions: plain.occasion || [],
+      primary_image: imageRows.find((image) => image.isPrimary)?.imageUrl || imageRows[0]?.imageUrl || null,
+      has_certificate: certRows.length > 0,
+    }
+  })
 }
 
 async function hydrateProduct(item, admin = false) {
@@ -746,6 +823,9 @@ export async function publicBootstrap() {
     StoneRate.find({ isCurrent: true }),
   ])
   const paymob = getPaymobConfig()
+  const tabby = getTabbyConfig()
+  const onlineProvider = tabby.isConfigured ? 'tabby' : paymob.isConfigured ? 'paymob' : null
+  const onlineConfigured = Boolean(onlineProvider)
   return {
     settings,
     tax,
@@ -754,7 +834,9 @@ export async function publicBootstrap() {
     stoneRates,
     payments: {
       paymob_configured: paymob.isConfigured,
-      online_checkout_enabled: Boolean(settings?.onlinePaymentEnabled) && paymob.isConfigured,
+      tabby_configured: tabby.isConfigured,
+      online_checkout_provider: onlineProvider,
+      online_checkout_enabled: Boolean(settings?.onlinePaymentEnabled) && onlineConfigured,
     },
   }
 }

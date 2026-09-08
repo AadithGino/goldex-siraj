@@ -9,6 +9,15 @@ const router = Router()
 router.use(authenticateCustomer)
 router.get('/', asyncHandler(controller.list))
 router.post('/', validate(placeOrderSchema), asyncHandler(controller.place))
+router.post('/:id/online-checkout', validate({ params: z.object({ id: objectId }) }), asyncHandler(controller.onlineCheckout))
+router.post(
+  '/:id/online-confirm',
+  validate({
+    params: z.object({ id: objectId }),
+    body: z.record(z.string(), z.any()).optional().default({}),
+  }),
+  asyncHandler(controller.onlineConfirm),
+)
 router.post('/:id/paymob-checkout', validate({ params: z.object({ id: objectId }) }), asyncHandler(controller.paymobCheckout))
 router.post(
   '/:id/paymob-confirm',

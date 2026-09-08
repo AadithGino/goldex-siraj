@@ -11,12 +11,30 @@ export async function place(req, res) {
 }
 
 export async function paymobCheckout(req, res) {
-  const result = await orderService.createPaymobCheckoutForOrder(req.auth.sub, req.params.id)
+  const result = await orderService.createOnlineCheckoutForOrder(req.auth.sub, req.params.id)
   await ok(res, result)
 }
 
 export async function paymobConfirm(req, res) {
-  const order = await orderService.confirmPaymobRedirectPayment(
+  const order = await orderService.confirmOnlineRedirectPayment(
+    req.auth.sub,
+    req.params.id,
+    req.validated?.body || req.body || {},
+  )
+  const enriched = await orderService.getCustomerOrder(req.auth.sub, order.id)
+  await ok(res, toCustomerOrderDto(enriched.order, {
+    returns: enriched.order.returns || [],
+    displayImageByProductId: enriched.displayImageByProductId,
+  }))
+}
+
+export async function onlineCheckout(req, res) {
+  const result = await orderService.createOnlineCheckoutForOrder(req.auth.sub, req.params.id)
+  await ok(res, result)
+}
+
+export async function onlineConfirm(req, res) {
+  const order = await orderService.confirmOnlineRedirectPayment(
     req.auth.sub,
     req.params.id,
     req.validated?.body || req.body || {},
