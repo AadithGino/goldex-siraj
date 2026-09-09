@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { LogOut, MapPin, Package, PiggyBank, User, Wallet } from 'lucide-react'
+import { LogOut, MapPin, Package, PiggyBank, Sparkles, Coins, User, Wallet } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { RequireCustomer } from '@/components/auth/RequireCustomer'
@@ -72,6 +72,18 @@ function AccountPageContent() {
             </Link>
           </Button>
         )}
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/custom-jewellery">
+            <Sparkles className="h-4 w-4" />
+            {t('account:customJewellery')}
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" asChild>
+          <Link to="/sell-jewellery">
+            <Coins className="h-4 w-4" />
+            {t('account:sellJewellery')}
+          </Link>
+        </Button>
         <Button variant="outline" size="sm" asChild>
           <Link to="/wishlist">{t('account:wishlist')}</Link>
         </Button>

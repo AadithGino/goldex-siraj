@@ -6,16 +6,33 @@
   "cart": "السلة",
   "account": "الحساب",
   "scheme": "خطة الذهب",
+  "customJewellery": "تخصيص",
+  "sellJewellery": "بيع",
   "searchPlaceholder": "ابحث عن مجوهرات…",
   "searchAria": "بحث",
   "accountAria": "الحساب",
   "cartAria": "السلة",
   "menuAria": "القائمة",
-  "footer": {
+    "footer": {
     "shopHeading": "تسوق",
     "allJewellery": "جميع المجوهرات",
+    "customJewellery": "مجوهرات مخصصة",
+    "sellJewellery": "بيع المجوهرات",
     "goldScheme": "خطة الذهب",
     "policiesHeading": "السياسات",
-    "contactHeading": "تواصل"
+    "contactHeading": "تواصل",
+    "boutiquesHeading": "فروعنا",
+    "flagship": "الفرع الرئيسي",
+    "getDirections": "الاتجاهات",
+    "boutiqueFallback": "فرع",
+    "paymentMethods": "طرق الدفع",
+    "payments": {
+      "visa": "فيزا",
+      "mastercard": "ماستركارد",
+      "tabby": "تابي",
+      "tamara": "تمارا",
+      "amex": "أمريكان إكسبريس",
+      "cod": "الدفع عند الاستلام الإمارات"
+    }
   }
 }

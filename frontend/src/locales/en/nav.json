@@ -6,16 +6,33 @@
   "cart": "Cart",
   "account": "Account",
   "scheme": "Scheme",
+  "customJewellery": "Custom",
+  "sellJewellery": "Sell",
   "searchPlaceholder": "Search jewellery…",
   "searchAria": "Search",
   "accountAria": "Account",
   "cartAria": "Cart",
   "menuAria": "Menu",
-  "footer": {
+    "footer": {
     "shopHeading": "Shop",
     "allJewellery": "All Jewellery",
+    "customJewellery": "Custom jewellery",
+    "sellJewellery": "Sell jewellery",
     "goldScheme": "Gold Scheme",
     "policiesHeading": "Policies",
-    "contactHeading": "Contact"
+    "contactHeading": "Contact",
+    "boutiquesHeading": "Our Branches",
+    "flagship": "Flagship",
+    "getDirections": "Get directions",
+    "boutiqueFallback": "Branch",
+    "paymentMethods": "Payment methods",
+    "payments": {
+      "visa": "Visa Card",
+      "mastercard": "Mastercard",
+      "tabby": "Tabby",
+      "tamara": "Tamara",
+      "amex": "American Express",
+      "cod": "Cash on Delivery UAE"
+    }
   }
 }

@@ -4,8 +4,6 @@ import { Search, ShoppingBag, User, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useGoldRate } from '@/hooks/useGoldRate'
-import { formatINR } from '@/lib/pricing'
 import { useCustomerAuth } from '@/contexts/CustomerAuthContext'
 import { useCartBadge } from '@/contexts/CartContext'
 import { BrandWordmark } from '@/components/ui/BrandLogo'
@@ -16,10 +14,8 @@ export function Header() {
   const navigate = useNavigate()
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const { data: rates } = useGoldRate()
   const { isAuthenticated } = useCustomerAuth()
   const { count: cartCount } = useCartBadge()
-  const rate22k = rates?.find((r) => r.purity === '22k')
   const handleSearch = (e) => {
     e.preventDefault()
     if (!query.trim()) return
@@ -36,18 +32,18 @@ export function Header() {
             <BrandWordmark className="h-8 sm:h-10" />
           </Link>
 
-          {rate22k && (
-            <div className="hidden rounded-full border border-gold/30 bg-ivory-2 px-3 py-1 text-xs font-semibold text-gold lg:block">
-              {t('common:goldRatePerGram', { rate: formatINR(rate22k.rate_per_gram) })}
-            </div>
-          )}
-
           <nav className="ms-auto hidden items-center gap-6 text-sm font-medium text-navy lg:flex">
             <Link to="/" className="hover:text-gold">
               {t('nav:home')}
             </Link>
             <Link to="/search" className="hover:text-gold">
               {t('nav:shopAll')}
+            </Link>
+            <Link to="/custom-jewellery" className="hover:text-gold">
+              {t('nav:customJewellery')}
+            </Link>
+            <Link to="/sell-jewellery" className="hover:text-gold">
+              {t('nav:sellJewellery')}
             </Link>
           </nav>
 

@@ -41,6 +41,8 @@ const CmsPage = lazyNamed(() => import('@/pages/CmsPage').then((m) => ({ default
 const SchemePage = lazyNamed(() => import('@/pages/SchemePage').then((m) => ({ default: m.SchemePage })))
 const SchemeTrackPage = lazyNamed(() => import('@/pages/SchemeTrackPage').then((m) => ({ default: m.SchemeTrackPage })))
 const SchemeEnrollmentDetailPage = lazyNamed(() => import('@/pages/SchemeEnrollmentDetailPage').then((m) => ({ default: m.SchemeEnrollmentDetailPage })))
+const CustomJewelleryPage = lazyNamed(() => import('@/pages/CustomJewelleryPage').then((m) => ({ default: m.CustomJewelleryPage })))
+const SellJewelleryPage = lazyNamed(() => import('@/pages/SellJewelleryPage').then((m) => ({ default: m.SellJewelleryPage })))
 const StaffLoginPage = lazyNamed(() => import('@/pages/admin/StaffLoginPage').then((m) => ({ default: m.StaffLoginPage })))
 const DashboardPage = lazyNamed(() => import('@/pages/admin/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const AdminProductsPage = lazyNamed(() => import('@/pages/admin/AdminProductsPage').then((m) => ({ default: m.AdminProductsPage })))
@@ -66,6 +68,10 @@ const AdminSchemesPage = lazyNamed(() => import('@/pages/admin/AdminSchemesPage'
 const AdminStockLedgerPage = lazyNamed(() => import('@/pages/admin/AdminStockLedgerPage').then((m) => ({ default: m.AdminStockLedgerPage })))
 const AdminAuditLogPage = lazyNamed(() => import('@/pages/admin/AdminAuditLogPage').then((m) => ({ default: m.AdminAuditLogPage })))
 const AdminSchemeEnrollmentDetailPage = lazyNamed(() => import('@/pages/admin/AdminSchemeEnrollmentDetailPage').then((m) => ({ default: m.AdminSchemeEnrollmentDetailPage })))
+const AdminCustomRequestsPage = lazyNamed(() => import('@/pages/admin/AdminCustomRequestsPage').then((m) => ({ default: m.AdminCustomRequestsPage })))
+const AdminCustomRequestDetailPage = lazyNamed(() => import('@/pages/admin/AdminCustomRequestDetailPage').then((m) => ({ default: m.AdminCustomRequestDetailPage })))
+const AdminSellRequestsPage = lazyNamed(() => import('@/pages/admin/AdminSellRequestsPage').then((m) => ({ default: m.AdminSellRequestsPage })))
+const AdminSellRequestDetailPage = lazyNamed(() => import('@/pages/admin/AdminSellRequestDetailPage').then((m) => ({ default: m.AdminSellRequestDetailPage })))
 
 function LegacyProductRedirect() {
   const { id } = useParams()
@@ -107,6 +113,8 @@ const router = createBrowserRouter([
       { path: 'scheme', element: <SchemePage /> },
       { path: 'scheme/track', element: <SchemeTrackPage /> },
       { path: 'scheme/:id', element: <SchemeEnrollmentDetailPage /> },
+      { path: 'custom-jewellery', element: <CustomJewelleryPage /> },
+      { path: 'sell-jewellery', element: <SellJewelleryPage /> },
     ],
   },
   { path: '/admin/login', element: <StaffLoginPage /> },
@@ -136,6 +144,10 @@ const router = createBrowserRouter([
       { path: 'coupons', element: <AdminCouponsPage /> },
       { path: 'reviews', element: <AdminReviewsPage /> },
       { path: 'returns', element: <AdminReturnsPage /> },
+      { path: 'custom-requests', element: <AdminCustomRequestsPage /> },
+      { path: 'custom-requests/:id', element: <AdminCustomRequestDetailPage /> },
+      { path: 'sell-requests', element: <AdminSellRequestsPage /> },
+      { path: 'sell-requests/:id', element: <AdminSellRequestDetailPage /> },
       { path: 'customers', element: <AdminCustomersPage /> },
       { path: 'customers/:id', element: <AdminCustomerDetailPage /> },
       { path: 'settings', element: <AdminSettingsPage /> },

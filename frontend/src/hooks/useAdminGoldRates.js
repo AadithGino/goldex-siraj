@@ -18,3 +18,20 @@ export function useSetGoldRate() {
     onSuccess: () => ['admin-gold-rates', 'gold-rates', 'price-breakup'].forEach((key) => qc.invalidateQueries({ queryKey: [key] })),
   })
 }
+
+export function useAdminGoldBuybackRates() {
+  return useQuery({
+    queryKey: ['admin-gold-buyback-rates'],
+    queryFn: async () => normalizeGoldRates(await api.get('/admin/rates/gold-buyback')),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+}
+
+export function useSetGoldBuybackRate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ purity, rate }) => api.post('/admin/rates/gold-buyback', { purity, rate_per_gram: rate }),
+    onSuccess: () => ['admin-gold-buyback-rates', 'gold-buyback-rates'].forEach((key) => qc.invalidateQueries({ queryKey: [key] })),
+  })
+}

@@ -101,3 +101,27 @@ export function computeSchemePayoutPreview(enrollment = {}) {
   }
   return Math.round((monthly * (tenure + bonus)) * 100) / 100
 }
+
+/** Plan listing summary from a scheme catalogue row. */
+export function computeSchemePlanSummary(scheme = {}) {
+  const monthly = Number(scheme.monthly_amount ?? 0)
+  const tenure = Number(scheme.tenure_months ?? 0)
+  const benefitType = scheme.benefit_type === 'fixed_amount' ? 'fixed_amount' : 'bonus_months'
+  const bonus = Number(scheme.bonus_months ?? 0)
+  const fixed = Number(scheme.benefit_fixed_amount ?? 0)
+  const paidTotal = Math.round((monthly * tenure + Number.EPSILON) * 100) / 100
+  const benefitAmount = benefitType === 'fixed_amount'
+    ? Math.round((fixed + Number.EPSILON) * 100) / 100
+    : Math.round((monthly * bonus + Number.EPSILON) * 100) / 100
+  const maturityValue = Math.round((paidTotal + benefitAmount + Number.EPSILON) * 100) / 100
+  return {
+    monthly,
+    tenure,
+    benefitType,
+    bonus,
+    fixed,
+    paidTotal,
+    benefitAmount,
+    maturityValue,
+  }
+}

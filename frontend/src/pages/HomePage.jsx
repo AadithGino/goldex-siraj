@@ -8,11 +8,15 @@ import { OccasionGrid } from '@/components/home/OccasionGrid'
 import { TrustBar } from '@/components/home/TrustBar'
 import { SchemeSection } from '@/components/home/SchemeSection'
 import { GoldRateTicker } from '@/components/home/GoldRateTicker'
+import { CustomJewellerySection } from '@/components/home/CustomJewellerySection'
+import { SellGoldSection } from '@/components/home/SellGoldSection'
 import { useStoreSettings } from '@/hooks/useStoreSettings'
+import { useProducts } from '@/hooks/useProducts'
 
 export function HomePage() {
   const { t } = useTranslation(['home', 'common'])
   const { data: settings } = useStoreSettings()
+  const { data: products, isLoading: productsLoading } = useProducts()
 
   return (
     <>
@@ -29,7 +33,7 @@ export function HomePage() {
       <CategoryStrip />
 
       {/* Shop by brand */}
-      <BrandStrip />
+      <BrandStrip products={products || []} productsLoading={productsLoading} />
 
       {/* Shop by collection — 3 portrait banners */}
       <BannerRow position="collection" title={t('home:shopByCollection')} />
@@ -42,7 +46,7 @@ export function HomePage() {
       />
 
       {/* Featured / best sellers */}
-      <FeaturedGrid />
+      <FeaturedGrid products={products || []} isLoadingProducts={productsLoading} />
 
       {/* Mid-page full-width campaign band */}
       <BannerRow position="deal" full />
@@ -55,10 +59,14 @@ export function HomePage() {
       />
 
       {/* Shop by occasion */}
-      <OccasionGrid />
+      <OccasionGrid products={products || []} isLoading={productsLoading} />
 
       {/* Full-width feature banner */}
       <BannerRow position="promo_bottom" />
+
+      {/* Custom jewellery */}
+      <CustomJewellerySection />
+      <SellGoldSection />
 
       {/* Gold savings scheme */}
       {settings?.scheme_enabled && <SchemeSection />}

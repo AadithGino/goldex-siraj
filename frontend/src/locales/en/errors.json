@@ -34,5 +34,8 @@
   "scheme": {
     "enrollmentFailed": "Enrollment failed",
     "paymentFailed": "Payment failed"
+  },
+  "custom": {
+    "submitFailed": "Could not send custom jewellery request"
   }
 }

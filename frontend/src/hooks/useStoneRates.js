@@ -1,3 +1,14 @@
-import { useQuery } from '@tanstack/react-query'
-import { api } from '@/lib/api'
-export function useStoneRates() { return useQuery({ queryKey: ['stone-rates'], queryFn: async () => ((await api.get('/customer/catalog/bootstrap')).stone_rates || []).map((row) => ({ ...row, rate_per_unit: row.rate })), staleTime: 15000, refetchOnWindowFocus: true }) }
+import { useMemo } from 'react'
+import { useCatalogBootstrap } from '@/hooks/useCatalogBootstrap'
+
+export function useStoneRates() {
+  const bootstrap = useCatalogBootstrap()
+  const data = useMemo(
+    () => (bootstrap.data?.stone_rates || []).map((row) => ({ ...row, rate_per_unit: row.rate })),
+    [bootstrap.data?.stone_rates],
+  )
+  return {
+    ...bootstrap,
+    data,
+  }
+}

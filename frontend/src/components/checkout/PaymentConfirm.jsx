@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Banknote, CreditCard, Wallet, Info } from 'lucide-react'
+import { Banknote, CreditCard, Wallet, Info, ShieldCheck } from 'lucide-react'
 import { formatAED } from '@/lib/pricing'
 import { Button } from '@/components/ui/button'
 import { GiftOptions } from '@/components/checkout/GiftOptions'
@@ -31,33 +31,50 @@ export function PaymentConfirm({
 
   const due = Math.max((Number(total) || 0) - walletApplied, 0)
 
-  const methods = useMemo(
-    () => [
+  const codEnabled = settings?.cod_enabled === true
+  const bankEnabled = settings?.bank_transfer_enabled !== false
+  const onlineEnabled = settings?.online_checkout_enabled === true
+  const paymobEnabled = settings?.paymob_configured === true
+  const tabbyEnabled = settings?.tabby_configured === true
+
+  const methods = useMemo(() => {
+    const rows = [
       {
         id: 'cod',
         label: t('checkout:cod'),
         icon: Banknote,
         note: t('checkout:codNote'),
+        enabled: codEnabled,
+      },
+      {
+        id: 'online_tabby',
+        label: 'Tabby',
+        icon: ShieldCheck,
+        note: 'Split your purchase with Tabby. Total is locked when you place the order.',
+        enabled: onlineEnabled && tabbyEnabled,
+      },
+      {
+        id: 'online_paymob',
+        label: 'Card (Paymob)',
+        icon: ShieldCheck,
+        note: 'Pay securely by card on Paymob. Total is locked when you place the order.',
+        enabled: onlineEnabled && paymobEnabled,
       },
       {
         id: 'manual',
         label: 'Bank transfer (arranged by call)',
         icon: CreditCard,
         note: 'Place the order now at the locked total below. The store will contact you; an admin marks it paid only after verifying the transfer.',
+        enabled: bankEnabled,
       },
-    ],
-    [t]
-  )
-
-  const codEnabled = settings?.cod_enabled === true
-  const bankEnabled = settings?.bank_transfer_enabled !== false
-  const availableMethods = methods.filter((m) =>
-    m.id === 'cod' ? codEnabled : bankEnabled
-  )
-  const bothDisabled = !codEnabled && !bankEnabled
+    ]
+    return rows.filter((row) => row.enabled)
+  }, [bankEnabled, codEnabled, onlineEnabled, paymobEnabled, tabbyEnabled, t])
+  const availableMethods = methods
+  const allDisabled = availableMethods.length === 0
 
   useEffect(() => {
-    if (bothDisabled) return
+    if (allDisabled) return
     if (availableMethods.length === 1) {
       setMethod(availableMethods[0].id)
       return
@@ -65,7 +82,7 @@ export function PaymentConfirm({
     if (!availableMethods.some((m) => m.id === method)) {
       setMethod(availableMethods[0]?.id || 'cod')
     }
-  }, [availableMethods, method, bothDisabled])
+  }, [availableMethods, method, allDisabled])
 
   const codMin = Number(settings?.cod_min_order_amount ?? 0)
   const codMax =
@@ -74,10 +91,11 @@ export function PaymentConfirm({
   const codAboveMax = method === 'cod' && codMax != null && Number(total || 0) > codMax
 
   const handleConfirm = () => {
-    if (bothDisabled) return
+    if (allDisabled) return
     onConfirm({
-      paymentMethod: method,
-      paymentMode: method === 'cod' ? 'cash' : 'bank_transfer',
+      paymentMethod: method.startsWith('online_') ? 'online' : method,
+      paymentProvider: method === 'online_tabby' ? 'tabby' : method === 'online_paymob' ? 'paymob' : null,
+      paymentMode: method === 'cod' ? 'cash' : method.startsWith('online_') ? 'card' : 'bank_transfer',
       walletApply: walletApplied,
       isGift,
       giftNote: isGift ? giftNote.trim() : '',
@@ -116,13 +134,13 @@ export function PaymentConfirm({
         })}
       </div>
 
-      {bothDisabled && (
+      {allDisabled && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          COD and bank transfer are currently unavailable. Please contact the store.
+          No payment methods are currently available. Please contact the store.
         </p>
       )}
 
-      {!bothDisabled && method === 'cod' && (codBelowMin || codAboveMax) && (
+      {!allDisabled && method === 'cod' && (codBelowMin || codAboveMax) && (
         <p className="rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-xs text-navy">
           {codBelowMin
             ? `COD is available for orders from ${formatAED(codMin)}.`
@@ -133,6 +151,16 @@ export function PaymentConfirm({
       {method === 'manual' && (
         <div className="rounded-lg border border-line bg-white p-3">
           <p className="text-xs leading-relaxed text-muted">No payment is collected on this website. After the store confirms your order by phone, transfer to the provided bank account. Your order is marked paid only after an owner or manager verifies the payment.</p>
+        </div>
+      )}
+
+      {(method === 'online_tabby' || method === 'online_paymob') && (
+        <div className="rounded-lg border border-line bg-white p-3">
+          <p className="text-xs leading-relaxed text-muted">
+            {method === 'online_tabby'
+              ? 'You will be redirected to Tabby checkout. Payment confirmation is handled automatically once Tabby verifies the transaction.'
+              : 'You will be redirected to Paymob secure checkout to pay by card. Payment confirmation is handled automatically once Paymob verifies the transaction.'}
+          </p>
         </div>
       )}
 
@@ -167,7 +195,13 @@ export function PaymentConfirm({
             </div>
           )}
           <div className="flex justify-between border-t border-line pt-2 font-semibold text-navy">
-            <span>{method === 'cod' ? t('checkout:payOnDelivery') : 'Bank transfer due (locked)'}</span>
+            <span>
+              {method === 'cod'
+                ? t('checkout:payOnDelivery')
+                : method.startsWith('online_')
+                  ? 'Card payment due'
+                  : 'Bank transfer due (locked)'}
+            </span>
             <span>{formatAED(due)}</span>
           </div>
         </div>
@@ -176,7 +210,11 @@ export function PaymentConfirm({
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-navy" />
           {method === 'cod'
             ? 'This COD total is an estimate. The final amount is recalculated using the live gold rate only when the package is physically handed to you.'
-            : 'This bank/card total is locked when you place the order. It is not live-repriced when payment is verified.'}
+            : method === 'online_tabby'
+              ? 'This Tabby total is locked when you place the order. You will complete payment on Tabby before the order is confirmed.'
+              : method === 'online_paymob'
+                ? 'This card total is locked when you place the order. You will complete payment on Paymob before the order is confirmed.'
+              : 'This bank/card total is locked when you place the order. It is not live-repriced when payment is verified.'}
         </p>
 
         <p className="mt-3 text-[11px] leading-relaxed text-muted">{t('checkout:policiesAgreement')}</p>
@@ -189,15 +227,19 @@ export function PaymentConfirm({
           className="mt-3 w-full"
           size="sm"
           onClick={handleConfirm}
-          disabled={isPlacing || bothDisabled || codBelowMin || codAboveMax}
+          disabled={isPlacing || allDisabled || codBelowMin || codAboveMax}
         >
-          {bothDisabled
+          {allDisabled
             ? 'Payment unavailable'
             : isPlacing
               ? t('common:placingOrder')
               : method === 'cod'
                 ? t('checkout:placeOrderCod', { amount: formatAED(due) })
-                : `Place bank-transfer order · ${formatAED(due)}`}
+                : method === 'online_tabby'
+                  ? `Pay ${formatAED(due)} with Tabby`
+                  : method === 'online_paymob'
+                  ? `Pay ${formatAED(due)} with card`
+                  : `Place bank-transfer order · ${formatAED(due)}`}
         </Button>
       </div>
     </div>

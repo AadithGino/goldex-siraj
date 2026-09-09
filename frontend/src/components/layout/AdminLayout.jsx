@@ -20,6 +20,8 @@ import {
   ClipboardList,
   ScrollText,
   Settings,
+  Sparkles,
+  Coins,
   Store
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -40,6 +42,8 @@ const SIDEBAR_LINKS = [
   { to: '/admin/coupons', label: 'Coupons', icon: Tag },
   { to: '/admin/reviews', label: 'Reviews', icon: MessageSquare },
   { to: '/admin/returns', label: 'Returns', icon: RotateCcw },
+  { to: '/admin/custom-requests', label: 'Custom jewellery', icon: Sparkles },
+  { to: '/admin/sell-requests', label: 'Sell jewellery', icon: Coins },
   { to: '/admin/customers', label: 'Customers', icon: Users },
   { to: '/admin/cms', label: 'CMS', icon: FileText },
   { to: '/admin/reports', label: 'Reports', icon: BarChart3 },
@@ -62,8 +66,8 @@ function AdminSidebar({ schemeEnabled }) {
   })
 
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-gold/20 bg-ivory-2 md:block">
-      <div className="sticky top-0 max-h-screen overflow-y-auto p-4">
+    <aside className="hidden h-full w-60 shrink-0 overflow-y-auto border-r border-gold/20 bg-ivory-2 md:block">
+      <div className="p-4">
         <Link to="/" className="flex items-center">
           <BrandWordmark className="h-8" />
         </Link>
@@ -137,10 +141,10 @@ export function AdminLayout() {
   const { data: settings } = useStoreSettings()
 
   return (
-    <div className="flex min-h-screen flex-col bg-ivory md:flex-row">
+    <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-ivory md:flex-row">
       <AdminSidebar schemeEnabled={settings?.scheme_enabled} />
-      <div className="flex min-h-screen flex-1 flex-col pb-16 md:pb-0">
-        <header className="border-b border-gold/20 bg-ivory-2 px-4 py-3 sm:px-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-16 md:pb-0">
+        <header className="shrink-0 border-b border-gold/20 bg-ivory-2 px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[.12em] text-gold">Admin</p>
@@ -152,7 +156,7 @@ export function AdminLayout() {
             </div>
           </div>
         </header>
-        <main className="flex-1 p-4 sm:p-6"><Outlet /></main>
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"><Outlet /></main>
       </div>
       <AdminMobileNav />
     </div>

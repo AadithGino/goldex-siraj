@@ -5,6 +5,8 @@ export function useBrands() {
   return useQuery({
     queryKey: ['brands'],
     queryFn: async () => getBrands(),
+    staleTime: 1000 * 60 * 10,
+    refetchOnReconnect: false,
   })
 }
 

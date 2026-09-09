@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { OCCASIONS } from '@/lib/constants'
-import { useProducts } from '@/hooks/useProducts'
 import { Skeleton } from '@/components/ui/skeleton'
 
 const OCCASION_FALLBACK_IMAGES = {
@@ -17,10 +16,13 @@ const OCCASION_FALLBACK_IMAGES = {
     'https://s7ap1.scene7.com/is/image/malabargroup/mgdsite/products/permanent/india/gold%20ornaments/nose%20pin/NP-320603/NPDZL40429-0001/NPDZL40429-0001-2.jpg?fmt=webp-alpha&wid=600&hei=500',
 }
 
-function OccasionCard({ occasion }) {
+function OccasionCard({ occasion, products = [], isLoading = false }) {
   const { t } = useTranslation(['home', 'common'])
-  const { data: products, isLoading } = useProducts({ occasion: occasion.key })
-  const preview = products?.[0]
+  const occasionProducts = (products || []).filter((product) => {
+    const tags = product?.occasion || product?.occasions || []
+    return Array.isArray(tags) && tags.includes(occasion.key)
+  })
+  const preview = occasionProducts[0]
   const image = preview?.primary_image || OCCASION_FALLBACK_IMAGES[occasion.key]
 
   return (
@@ -44,14 +46,14 @@ function OccasionCard({ occasion }) {
         <p className="text-xs font-black uppercase tracking-[.12em] text-gold">{occasion.key}</p>
         <h3 className="mt-1 font-display text-xl text-gold-3">{t(`common:occasion.${occasion.key}`)}</h3>
         <p className="mt-1 text-xs text-gold-3/80">
-          {t('common:pieceCount', { count: products?.length || 0 })}
+          {t('common:pieceCount', { count: occasionProducts.length || 0 })}
         </p>
       </div>
     </Link>
   )
 }
 
-export function OccasionGrid() {
+export function OccasionGrid({ products = [], isLoading = false }) {
   const { t } = useTranslation('home')
 
   return (
@@ -63,7 +65,7 @@ export function OccasionGrid() {
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {OCCASIONS.slice(0, 3).map((occasion) => (
-            <OccasionCard key={occasion.key} occasion={occasion} />
+            <OccasionCard key={occasion.key} occasion={occasion} products={products} isLoading={isLoading} />
           ))}
         </div>
       </div>

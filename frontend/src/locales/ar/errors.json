@@ -34,5 +34,8 @@
   "scheme": {
     "enrollmentFailed": "فشل التسجيل",
     "paymentFailed": "فشل الدفع"
+  },
+  "custom": {
+    "submitFailed": "تعذر إرسال طلب المجوهرات المخصصة"
   }
 }

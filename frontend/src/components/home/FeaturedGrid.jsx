@@ -5,9 +5,15 @@ import { Button } from '@/components/ui/button'
 import { ProductGrid } from '@/components/product/ProductGrid'
 import { useProducts } from '@/hooks/useProducts'
 
-export function FeaturedGrid() {
+export function FeaturedGrid({ products: sourceProducts = null, isLoadingProducts = false }) {
   const { t } = useTranslation(['home', 'common'])
-  const { data: products, isLoading, error } = useProducts({ featured: true })
+  const usingSharedProducts = Array.isArray(sourceProducts)
+  const featuredQuery = useProducts({ featured: true, enabled: !usingSharedProducts })
+  const products = usingSharedProducts
+    ? sourceProducts.filter((product) => Boolean(product?.is_featured))
+    : featuredQuery.data
+  const isLoading = usingSharedProducts ? isLoadingProducts : featuredQuery.isLoading
+  const error = featuredQuery.error
 
   return (
     <section className="py-10 sm:py-12">

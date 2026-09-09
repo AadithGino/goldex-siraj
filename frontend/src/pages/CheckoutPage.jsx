@@ -71,6 +71,7 @@ function CheckoutPageContent() {
 
   const handlePlaceOrder = async ({
     paymentMethod,
+    paymentProvider,
     paymentMode,
     walletApply,
     isGift: giftOrder,
@@ -85,6 +86,7 @@ function CheckoutPageContent() {
         addressId: activeAddressId,
         couponCode: appliedCoupon?.code,
         paymentMethod: paymentMethod || 'cod',
+        paymentProvider: paymentProvider || null,
         paymentMode: paymentMode || (paymentMethod === 'manual' ? 'bank_transfer' : 'cash'),
         walletApply: walletApply || 0,
         isGift: !!giftOrder,
@@ -103,7 +105,17 @@ function CheckoutPageContent() {
         })
       }
 
-      toast.success((paymentMethod || 'cod') === 'manual' ? `Order ${result.order_number} placed. The store will contact you with bank-transfer instructions.` : t('common:orderPlaced', { number: result.order_number }))
+      toast.success((paymentMethod || 'cod') === 'manual'
+        ? `Order ${result.order_number} placed. The store will contact you with bank-transfer instructions.`
+        : paymentMethod === 'online'
+          ? 'Redirecting to secure online payment…'
+          : t('common:orderPlaced', { number: result.order_number }))
+
+      if (result.checkout_url) {
+        window.location.href = result.checkout_url
+        return
+      }
+
       navigate(`/orders/${result.order_id}`, { replace: true })
     } catch (err) {
       toast.error(err.message || t('errors:checkout.placeOrderFailed'))

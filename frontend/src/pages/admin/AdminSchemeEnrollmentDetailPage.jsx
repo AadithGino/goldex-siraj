@@ -172,9 +172,9 @@ This cannot be reactivated later.`
 
       {enrollment.status === 'active' && canCompleteScheme && (
         <div className="mb-6 rounded-2xl border border-gold/20 bg-ivory-2 p-4">
-          <p className="text-sm font-medium text-navy">Complete scheme / credit wallet</p>
+          <p className="text-sm font-medium text-navy">Wallet payout</p>
           <p className="mt-1 text-xs text-muted">
-            Eligible when all installments are paid and maturity is reached. Payout is calculated by the server from enrollment snapshots.
+            When all installments are paid and maturity is reached, the total paid plus bonus is credited to the customer wallet automatically.
           </p>
           <div className="mt-3 space-y-1 rounded-xl border border-gold/20 bg-white px-3 py-2.5 text-xs">
             <p className="text-navy">
@@ -193,22 +193,29 @@ This cannot be reactivated later.`
               Matured: <span className="font-semibold">{matured ? 'Yes' : 'No'}</span>
             </p>
             <p className="text-navy">
-              Server payout: <span className="font-semibold">{formatAED(serverPayout)}</span>
+              Payout due: <span className="font-semibold">{formatAED(serverPayout)}</span>
             </p>
           </div>
+          {eligibleForCompletion && (
+            <p className="mt-3 text-xs text-emerald-700">
+              Eligible now — wallet credit runs automatically on the next payment sync or page refresh.
+            </p>
+          )}
+          {!eligibleForCompletion && (
+            <p className="mt-3 text-xs text-muted">
+              Payout is pending until all installments are paid and the scheme has matured.
+            </p>
+          )}
           <div className="mt-3">
             <Button
+              variant="outline"
+              size="sm"
               onClick={handleCreditPayout}
               disabled={completeEnrollment.isPending || !eligibleForCompletion}
             >
-              {completeEnrollment.isPending ? 'Crediting…' : 'Credit wallet & complete'}
+              {completeEnrollment.isPending ? 'Crediting…' : 'Retry wallet credit'}
             </Button>
           </div>
-          {!eligibleForCompletion && (
-            <p className="mt-2 text-xs text-muted">
-              Completion is enabled only after all installments are paid and the scheme has matured.
-            </p>
-          )}
         </div>
       )}
 

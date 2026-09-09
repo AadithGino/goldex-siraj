@@ -10,6 +10,8 @@ import enOrders from '@/locales/en/orders.json'
 import enHome from '@/locales/en/home.json'
 import enProduct from '@/locales/en/product.json'
 import enScheme from '@/locales/en/scheme.json'
+import enCustom from '@/locales/en/custom.json'
+import enSell from '@/locales/en/sell.json'
 import enErrors from '@/locales/en/errors.json'
 
 import arCommon from '@/locales/ar/common.json'
@@ -21,6 +23,8 @@ import arOrders from '@/locales/ar/orders.json'
 import arHome from '@/locales/ar/home.json'
 import arProduct from '@/locales/ar/product.json'
 import arScheme from '@/locales/ar/scheme.json'
+import arCustom from '@/locales/ar/custom.json'
+import arSell from '@/locales/ar/sell.json'
 import arErrors from '@/locales/ar/errors.json'
 
 export const LANG_STORAGE_KEY = 'goldex_lang'
@@ -61,6 +65,8 @@ const resources = {
     home: enHome,
     product: enProduct,
     scheme: enScheme,
+    custom: enCustom,
+    sell: enSell,
     errors: enErrors,
   },
   ar: {
@@ -73,6 +79,8 @@ const resources = {
     home: arHome,
     product: arProduct,
     scheme: arScheme,
+    custom: arCustom,
+    sell: arSell,
     errors: arErrors,
   },
 }
@@ -85,7 +93,7 @@ i18n.use(initReactI18next).init({
   lng: initialLang,
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'nav', 'auth', 'checkout', 'account', 'orders', 'home', 'product', 'scheme', 'errors'],
+  ns: ['common', 'nav', 'auth', 'checkout', 'account', 'orders', 'home', 'product', 'scheme', 'custom', 'sell', 'errors'],
   interpolation: { escapeValue: false },
 })
 

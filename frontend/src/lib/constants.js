@@ -229,6 +229,7 @@ export const PAYMENT_PROVIDER_LABELS = {
   stripe: 'Stripe',
   network: 'Network International',
   paytabs: 'PayTabs',
+  paymob: 'Paymob',
 }
 
 export function getPaymentModeLabel(mode) {

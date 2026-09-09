@@ -12,6 +12,10 @@ const memory = {
   customer: loadTokens('customer').accessToken,
   staff: loadTokens('staff').accessToken,
 }
+const refreshInFlight = {
+  customer: null,
+  staff: null,
+}
 
 export function setAccessToken(token, { refreshToken, portal = 'customer' } = {}) {
   memory[portal] = token || null
@@ -64,6 +68,34 @@ function bearerFor(path) {
   return memory[portal] || loadTokens(portal).accessToken || null
 }
 
+async function refreshPortalAccessToken(portal) {
+  if (refreshInFlight[portal]) return refreshInFlight[portal]
+  refreshInFlight[portal] = (async () => {
+    const storedRefresh = loadTokens(portal).refreshToken
+    const refreshPath = portal === 'staff' ? '/staff/auth/refresh' : '/customer/auth/refresh'
+    const refresh = await fetch(buildUrl(refreshPath), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(storedRefresh ? { refresh_token: storedRefresh } : {}),
+    })
+    if (!refresh.ok) return false
+    const payload = await refresh.json().catch(() => null)
+    const next = payload?.data?.access_token
+    const nextRefresh = payload?.data?.refresh_token
+    if (next) {
+      setAccessToken(next, { refreshToken: nextRefresh, portal })
+      return true
+    }
+    return false
+  })()
+  try {
+    return await refreshInFlight[portal]
+  } finally {
+    refreshInFlight[portal] = null
+  }
+}
+
 async function request(method, path, { body, query, headers, retry = true, withMeta = false } = {}) {
   const portal = resolvePortal(window.location.pathname, path)
   const accessToken = bearerFor(path)
@@ -86,19 +118,8 @@ async function request(method, path, { body, query, headers, retry = true, withM
   })
   const refreshable = !path.endsWith('/auth/refresh') && !path.endsWith('/auth/login') && !path.endsWith('/auth/logout') && !path.includes('/auth/otp/')
   if (response.status === 401 && retry && refreshable) {
-    const storedRefresh = loadTokens(portal).refreshToken
-    const refreshPath = portal === 'staff' ? '/staff/auth/refresh' : '/customer/auth/refresh'
-    const refresh = await fetch(buildUrl(refreshPath), {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(storedRefresh ? { refresh_token: storedRefresh } : {}),
-    })
-    if (refresh.ok) {
-      const payload = await refresh.json().catch(() => null)
-      const next = payload?.data?.access_token
-      const nextRefresh = payload?.data?.refresh_token
-      if (next) setAccessToken(next, { refreshToken: nextRefresh, portal })
+    const refreshed = await refreshPortalAccessToken(portal)
+    if (refreshed) {
       return request(method, path, { body, query, headers, retry: false, withMeta })
     }
     clearAccessToken(portal)

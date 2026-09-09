@@ -8,6 +8,7 @@ import { CmsPayloadError, toCmsPayload } from '@/lib/cmsPayload'
 import { slugify } from '@/lib/storage'
 import { toFormState } from '@/lib/formUtils'
 import { LocaleFieldTabs } from '@/components/admin/shared/LocaleFieldTabs'
+import { CmsRichTextEditor } from '@/components/admin/cms/CmsRichTextEditor'
 
 const DEFAULT = {
   title: '',
@@ -30,6 +31,10 @@ export function CmsFormDialog({ open, onOpenChange, page }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (!isEdit && !String(form.content || '').trim()) {
+      toast.error('English page content is required')
+      return
+    }
     try {
       const payload = toCmsPayload(form, { partial: isEdit })
       if (isEdit) await update.mutateAsync({ id: page.id, ...payload })
@@ -43,7 +48,7 @@ export function CmsFormDialog({ open, onOpenChange, page }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader><DialogTitle>{isEdit ? 'Edit page' : 'New page'}</DialogTitle><DialogDescription>{isEdit ? 'Update CMS page content.' : 'Create a new storefront CMS page.'}</DialogDescription></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <LocaleFieldTabs>
@@ -67,14 +72,12 @@ export function CmsFormDialog({ open, onOpenChange, page }) {
                 {locale === 'en' && (
                   <Input value={form.slug} onChange={(e) => set('slug', e.target.value)} placeholder="slug" required />
                 )}
-                <textarea
+                <CmsRichTextEditor
+                  key={`cms-content-${locale}`}
                   value={locale === 'en' ? form.content : form.content_ar || ''}
-                  onChange={(e) => (locale === 'en' ? set('content', e.target.value) : set('content_ar', e.target.value))}
-                  rows={10}
-                  required={locale === 'en'}
-                  dir={locale === 'ar' ? 'rtl' : undefined}
-                  className={`w-full rounded-2xl border border-gold/20 bg-ivory-2 px-4 py-3 text-sm ${locale === 'ar' ? 'text-right' : ''}`}
-                  placeholder={locale === 'en' ? 'HTML or plain text content' : 'Arabic content'}
+                  onChange={(html) => (locale === 'en' ? set('content', html) : set('content_ar', html))}
+                  dir={locale === 'ar' ? 'rtl' : 'ltr'}
+                  placeholder={locale === 'en' ? 'Page content' : 'Arabic page content'}
                 />
               </>
             )}

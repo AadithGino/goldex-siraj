@@ -3,6 +3,28 @@ import { TrendingUp } from 'lucide-react'
 import { useGoldRate } from '@/hooks/useGoldRate'
 import { formatAED } from '@/lib/pricing'
 
+const PURITY_ORDER = ['24k', '22k', '21k', '18k', '14k']
+
+function sortGoldRates(rates = []) {
+  return [...rates].sort((a, b) => {
+    const ai = PURITY_ORDER.indexOf(String(a.purity).toLowerCase())
+    const bi = PURITY_ORDER.indexOf(String(b.purity).toLowerCase())
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+  })
+}
+
+function RateChip({ rate, t }) {
+  return (
+    <span className="chip inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-3 py-1 text-xs sm:text-sm">
+      <span className="text-white/70">{t(`home:purity.${rate.purity}`, { defaultValue: rate.purity })}</span>
+      <span dir="ltr" className="inline-flex items-baseline gap-0.5 text-start">
+        <strong className="text-gold-2">{formatAED(rate.rate_per_gram)}</strong>
+        <span className="text-white/50">{t('common:perGram')}</span>
+      </span>
+    </span>
+  )
+}
+
 /** Slim navy bar showing today's gold rate per gram, AED. */
 export function GoldRateTicker() {
   const { t } = useTranslation(['home', 'common'])
@@ -10,39 +32,43 @@ export function GoldRateTicker() {
 
   if (isLoading || !rates?.length) return null
 
+  const sorted = sortGoldRates(rates)
+  const shouldScroll = sorted.length > 1
+
   return (
     <div className="rate-ticker overflow-x-clip">
-      <div className="mx-auto max-w-[1320px] px-3 py-2 sm:px-6">
-        <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-4">
-          <div className="flex min-w-0 shrink-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3 lg:justify-start">
-            <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold tracking-wide sm:text-sm">
-              <TrendingUp className="h-4 w-4 shrink-0 text-gold-2" />
-              {t('home:goldRateToday')}
-            </span>
-            <span className="text-[10px] leading-snug text-white/55 lg:hidden">
-              {t('common:goldTickerFootnote')}
-            </span>
-          </div>
+      <div className="mx-auto flex max-w-[1320px] min-w-0 items-center gap-3 px-3 py-2 sm:gap-4 sm:px-6">
+        <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold tracking-wide sm:text-sm">
+          <TrendingUp className="h-4 w-4 shrink-0 text-gold-2" />
+          {t('home:goldRateToday')}
+        </span>
 
-          <div className="rate-ticker-chips min-w-0 w-full lg:flex-1">
-            {rates.map((r) => (
-              <span
-                key={r.id || r.purity}
-                className="chip inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-3 py-1 text-xs sm:text-sm"
+        <div
+          className="min-w-0 flex-1 overflow-hidden"
+          aria-label={t('common:goldRateTickerAria')}
+        >
+          <div
+            dir="ltr"
+            className={shouldScroll ? 'rate-ticker-marquee' : 'flex items-center gap-2'}
+            style={shouldScroll ? { '--marquee-duration': `${Math.max(16, sorted.length * 5)}s` } : undefined}
+          >
+            {(shouldScroll ? [0, 1] : [0]).map((copy) => (
+              <div
+                key={copy}
+                className="flex shrink-0 items-center gap-2 pe-2"
+                aria-hidden={copy === 1 || undefined}
               >
-                <span className="text-white/70">{t(`home:purity.${r.purity}`, { defaultValue: r.purity })}</span>
-                <span dir="ltr" className="inline-flex items-baseline gap-0.5 text-start">
-                  <strong className="text-gold-2">{formatAED(r.rate_per_gram)}</strong>
-                  <span className="text-white/50">{t('common:perGram')}</span>
-                </span>
-              </span>
+                {sorted.map((rate) => (
+                  <RateChip key={`${copy}-${rate.id || rate.purity}`} rate={rate} t={t} />
+                ))}
+              </div>
             ))}
           </div>
-
-          <span className="hidden shrink-0 text-xs text-white/55 lg:block">
-            {t('common:goldTickerFootnote')}
-          </span>
         </div>
+
+        <span className="hidden shrink-0 text-xs text-white/55 lg:block">
+          {t('common:goldTickerFootnote')}
+        </span>
       </div>
     </div>
   )

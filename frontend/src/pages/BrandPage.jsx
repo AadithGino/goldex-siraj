@@ -18,6 +18,7 @@ import { useContentLang } from '@/hooks/useContentLang'
 import { pickField } from '@/lib/contentLocale'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { brandLogoUrl } from '@/lib/catalogPayloads'
 import {
   Sheet,
   SheetContent,
@@ -77,25 +78,26 @@ export function BrandPage() {
 
   const brandName = pickField(brand, 'name', lang)
   const brandDescription = pickField(brand, 'description', lang)
-  const banner = brand.banner_desktop_url || brand.banner_tablet_url || brand.banner_mobile_url
+  const logo = brandLogoUrl(brand)
+    || brand.banner_desktop_url
+    || brand.banner_tablet_url
+    || brand.banner_mobile_url
 
   return (
     <div className="mx-auto max-w-[1680px] px-4 py-8 sm:px-6">
-      {banner && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-gold/20 bg-ivory-2 px-3 py-3 sm:px-4">
-          <img
-            src={banner}
-            alt={brandName}
-            className="mx-auto h-auto max-h-55 w-full rounded-xl object-contain sm:max-h-75 lg:max-h-95"
-          />
+      <div className="mb-6 flex items-start gap-4">
+        {logo ? (
+          <div className="flex h-14 w-24 shrink-0 items-center justify-center rounded-xl border border-line bg-ivory-2 px-3 sm:h-16 sm:w-28">
+            <img src={logo} alt="" className="max-h-10 max-w-full object-contain sm:max-h-12" />
+          </div>
+        ) : null}
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-[.12em] text-gold">{t('product:brandEyebrow')}</p>
+          <h1 className="font-display text-[clamp(24px,2.8vw,40px)] text-navy">{brandName}</h1>
+          {brandDescription && (
+            <p className="mt-2 max-w-2xl text-sm text-muted">{brandDescription}</p>
+          )}
         </div>
-      )}
-      <div className="mb-6">
-        <p className="text-xs font-black uppercase tracking-[.12em] text-gold">{t('product:brandEyebrow')}</p>
-        <h1 className="font-display text-[clamp(24px,2.8vw,40px)] text-navy">{brandName}</h1>
-        {brandDescription && (
-          <p className="mt-2 max-w-2xl text-sm text-muted">{brandDescription}</p>
-        )}
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[240px_1fr] lg:items-start">

@@ -3,13 +3,18 @@ import { getProducts, getProductById } from '@/lib/catalogApi'
 import { isStorefrontVariantValid } from '@/lib/storefrontVariants'
 
 export function useProducts(options = {}) {
-  const { categoryId, brandId, featured, occasion, search } = options
+  const {
+    categoryId, brandId, featured, occasion, search, enabled = true,
+  } = options
 
   return useQuery({
     queryKey: ['products', { categoryId, brandId, featured, occasion, search }],
     queryFn: async () => {
       return getProducts({ categoryId, brandId, featured, occasion, search })
     },
+    enabled,
+    staleTime: 1000 * 60 * 2,
+    refetchOnReconnect: false,
   })
 }
 
@@ -18,6 +23,8 @@ export function useProductBySlug(slug) {
     queryKey: ['product', slug],
     queryFn: () => getProductById(slug),
     enabled: !!slug,
+    staleTime: 1000 * 60 * 2,
+    refetchOnReconnect: false,
   })
 }
 

@@ -58,6 +58,7 @@
 html {
   scroll-behavior: smooth;
   overflow-x: clip;
+  overflow-anchor: none;
 }
 
 body {
@@ -68,6 +69,21 @@ body {
   font-family: var(--font-sans);
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
+  overflow-anchor: none;
+}
+
+/* Radix menus portal to the document end. Keep them out of document flow so
+   opening a dropdown cannot scroll or stretch the page. */
+[data-radix-popper-content-wrapper] {
+  z-index: 60 !important;
+}
+
+/* Radix scroll-lock adds padding/margin for the missing scrollbar and can
+   break position:sticky (admin sidebar, storefront header). Neutralize the shift. */
+body[data-scroll-locked] {
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+  --removed-body-scroll-bar-size: 0px;
 }
 
 [dir="rtl"] body {
@@ -126,26 +142,19 @@ h4 {
   border-radius: 999px;
 }
 
-.rate-ticker-chips {
+.rate-ticker-marquee {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.5rem;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding-bottom: 2px;
+  width: max-content;
+  animation: rate-ticker-marquee var(--marquee-duration, 20s) linear infinite;
 }
 
-.rate-ticker-chips::-webkit-scrollbar {
-  display: none;
+.rate-ticker-marquee:hover {
+  animation-play-state: paused;
 }
 
-[dir='rtl'] .rate-ticker-chips {
-  justify-content: flex-start;
+@keyframes rate-ticker-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
 }
 
 .product-quick-nav {
@@ -166,9 +175,75 @@ h4 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .rate-ticker-marquee {
+    animation: none;
+  }
+
+  .rate-ticker-marquee [aria-hidden='true'] {
+    display: none;
+  }
+
   .product-card-premium,
   .product-card-premium * {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/* CMS rich text editor (Tiptap) */
+.cms-rich-text-editor p {
+  margin: 0.5em 0;
+}
+
+.cms-rich-text-editor p:first-child {
+  margin-top: 0;
+}
+
+.cms-rich-text-editor h2,
+.cms-rich-text-editor h3,
+.cms-rich-text-editor h4 {
+  font-family: var(--font-display, inherit);
+  color: var(--navy);
+  font-weight: 600;
+  margin: 1em 0 0.5em;
+}
+
+.cms-rich-text-editor h2 { font-size: 1.25rem; }
+.cms-rich-text-editor h3 { font-size: 1.1rem; }
+.cms-rich-text-editor h4 { font-size: 1rem; }
+
+.cms-rich-text-editor ul,
+.cms-rich-text-editor ol {
+  margin: 0.5em 0;
+  padding-inline-start: 1.5rem;
+}
+
+.cms-rich-text-editor blockquote {
+  margin: 0.75em 0;
+  padding-inline-start: 1rem;
+  border-inline-start: 3px solid var(--gold);
+  color: var(--muted);
+}
+
+.cms-rich-text-editor hr {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid var(--line);
+}
+
+.cms-rich-text-editor a {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+.cms-rich-text-editor p.is-editor-empty:first-child::before {
+  color: var(--muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+[dir='rtl'] .cms-rich-text-editor p.is-editor-empty:first-child::before {
+  float: right;
 }

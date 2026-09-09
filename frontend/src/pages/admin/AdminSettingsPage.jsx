@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { AdminPageHeader } from '@/components/admin/shared/AdminPageHeader'
 import { Button } from '@/components/ui/button'
@@ -7,18 +7,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAdminSettings, useAdminSettingsMutations } from '@/hooks/useAdminSettings'
 import { useStaffRole } from '@/hooks/useStaffRole'
 import { Skeleton } from '@/components/ui/skeleton'
+import { StoreBranchesEditor } from '@/components/admin/settings/StoreBranchesEditor'
 
 export function AdminSettingsPage() {
   const { canManageSettings } = useStaffRole()
-  const { store, tax, isLoading } = useAdminSettings()
+  const { store, tax, isLoading, dataUpdatedAt } = useAdminSettings()
   const { updateStore, updateTax } = useAdminSettingsMutations()
   const [storeForm, setStoreForm] = useState({})
   const [taxForm, setTaxForm] = useState({})
+  const syncedAt = useRef(0)
 
   useEffect(() => {
+    if (!dataUpdatedAt || dataUpdatedAt === syncedAt.current) return
     if (store) setStoreForm(store)
     if (tax) setTaxForm(tax)
-  }, [store, tax])
+    syncedAt.current = dataUpdatedAt
+  }, [store, tax, dataUpdatedAt])
 
   if (!canManageSettings) {
     return <p className="text-muted">You don&apos;t have permission to manage settings.</p>
@@ -60,17 +64,21 @@ export function AdminSettingsPage() {
 
   return (
     <div>
-      <AdminPageHeader title="Settings" description="Store configuration, shipping, VAT, and scheme toggle." />
+      <AdminPageHeader title="Settings" description="Store configuration, branch addresses, shipping, VAT, and scheme toggle." />
       <Tabs defaultValue="store">
         <TabsList className="mb-6"><TabsTrigger value="store">Store</TabsTrigger><TabsTrigger value="tax">Tax & VAT</TabsTrigger></TabsList>
         <TabsContent value="store">
-          <form onSubmit={saveStore} className="max-w-xl space-y-4 rounded-[28px] border border-gold/20 bg-ivory-2 p-6">
-            {['store_name', 'support_phone', 'support_email', 'support_whatsapp', 'address', 'logo_url'].map((field) => (
+          <form onSubmit={saveStore} className="max-w-3xl space-y-4 rounded-[28px] border border-gold/20 bg-ivory-2 p-6">
+            {['store_name', 'support_phone', 'support_email', 'support_whatsapp', 'logo_url'].map((field) => (
               <div key={field}>
                 <label className="mb-2 block text-sm font-medium capitalize text-navy">{field.replace(/_/g, ' ')}</label>
                 <Input value={storeForm[field] || ''} onChange={(e) => setStoreForm((p) => ({ ...p, [field]: e.target.value }))} />
               </div>
             ))}
+            <StoreBranchesEditor
+              value={storeForm.branches || []}
+              onChange={(branches) => setStoreForm((p) => ({ ...p, branches }))}
+            />
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-2 block text-sm font-medium text-navy">Flat shipping fee (AED)</label>

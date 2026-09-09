@@ -1,12 +1,23 @@
-import { useQuery } from '@tanstack/react-query'
-import { getCurrentGoldRates } from '@/lib/catalogApi'
+import { useMemo } from 'react'
+import { useCatalogBootstrap } from '@/hooks/useCatalogBootstrap'
 
 export function useGoldRate() {
-  return useQuery({
-    queryKey: ['gold-rates'],
-    queryFn: getCurrentGoldRates,
-    staleTime: 1000 * 15,
-    refetchInterval: 1000 * 60,
-    refetchOnWindowFocus: true,
-  })
+  const bootstrap = useCatalogBootstrap()
+  const data = useMemo(() => bootstrap.data?.gold_rates || [], [bootstrap.data?.gold_rates])
+  return {
+    ...bootstrap,
+    data,
+  }
+}
+
+export function useGoldBuybackRate() {
+  const bootstrap = useCatalogBootstrap()
+  const data = useMemo(
+    () => bootstrap.data?.gold_buyback_rates || [],
+    [bootstrap.data?.gold_buyback_rates],
+  )
+  return {
+    ...bootstrap,
+    data,
+  }
 }

@@ -12,10 +12,123 @@ import { useStoreSettings } from '@/hooks/useStoreSettings'
 import { useContentLang } from '@/hooks/useContentLang'
 import { pickField } from '@/lib/contentLocale'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ENROLLMENT_STATUS, formatSchemeDate, getNextDueInstallment, schemeProgress } from '@/lib/schemeUtils'
+import {
+  ENROLLMENT_STATUS,
+  computeSchemePlanSummary,
+  formatSchemeDate,
+  getNextDueInstallment,
+  schemeProgress,
+} from '@/lib/schemeUtils'
 import { getEnrollmentStatusLabel } from '@/lib/i18nLabels'
-import { ChevronRight, PiggyBank } from 'lucide-react'
+import { ChevronRight, Gift, PiggyBank, Sparkles } from 'lucide-react'
 import { formatSchemeError } from '@/lib/schemeErrors'
+
+function SchemePlanCard({ scheme, existingActiveEnrollment, onEnroll, enrollPending }) {
+  const { t } = useTranslation(['scheme', 'common'])
+  const lang = useContentLang()
+  const schemeName = pickField(scheme, 'name', lang)
+  const schemeDescription = pickField(scheme, 'description', lang)
+  const summary = computeSchemePlanSummary(scheme)
+  const hasBonusMonths = summary.benefitType === 'bonus_months' && summary.bonus > 0
+  const hasFixedBenefit = summary.benefitType === 'fixed_amount' && summary.benefitAmount > 0
+  const hasBenefit = hasBonusMonths || hasFixedBenefit
+
+  const benefitLabel = hasBonusMonths
+    ? t('scheme:bonusMonthsLabel', { count: summary.bonus })
+    : hasFixedBenefit
+      ? t('scheme:fixedBenefitLabel', { amount: formatINR(summary.benefitAmount) })
+      : t('scheme:noBonus')
+
+  const badgeLabel = hasBonusMonths
+    ? t('scheme:bonusPlanBadge', { tenure: summary.tenure, bonus: summary.bonus })
+    : hasFixedBenefit
+      ? t('scheme:fixedBenefitBadge')
+      : t('common:monthTenure', { count: summary.tenure })
+
+  return (
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-[28px] border border-gold/25 bg-ivory-2 shadow-[0_14px_34px_rgba(7,21,37,.08)] transition-shadow hover:border-gold/45 hover:shadow-[0_18px_40px_rgba(7,21,37,.12)]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-gold/40 via-gold to-gold/40" />
+      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-gold/10 blur-2xl" />
+
+      <div className="relative flex flex-1 flex-col p-6 sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-display text-2xl leading-tight text-navy">{schemeName}</h2>
+            {schemeDescription ? (
+              <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted">{schemeDescription}</p>
+            ) : null}
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-gold/35 bg-gold/10 px-3 py-1 text-xs font-bold tracking-wide text-gold">
+            <Sparkles className="h-3.5 w-3.5" />
+            {badgeLabel}
+          </span>
+        </div>
+
+        <p className="mt-5 font-display text-[clamp(1.75rem,4vw,2.25rem)] leading-none text-gold">
+          {t('common:perMonth', { amount: formatINR(summary.monthly) })}
+        </p>
+
+        <dl className="mt-5 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl border border-gold/15 bg-ivory-3/80 px-3.5 py-3">
+            <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+              {t('scheme:planTenure')}
+            </dt>
+            <dd className="mt-1 text-sm font-semibold text-navy">
+              {t('common:monthTenure', { count: summary.tenure })}
+            </dd>
+          </div>
+          <div className="rounded-2xl border border-gold/15 bg-ivory-3/80 px-3.5 py-3">
+            <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+              {t('scheme:planBenefit')}
+            </dt>
+            <dd className="mt-1 flex items-start gap-1.5 text-sm font-semibold text-navy">
+              {hasBenefit ? <Gift className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" /> : null}
+              <span>{benefitLabel}</span>
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-4 rounded-2xl border border-navy/10 bg-navy px-4 py-4 text-white">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gold-3/70">
+                {t('scheme:planYouPay')}
+              </p>
+              <p className="mt-1 font-display text-lg text-gold-3">{formatINR(summary.paidTotal)}</p>
+            </div>
+            <ChevronRight className="mb-1 h-4 w-4 shrink-0 text-gold/60" />
+            <div className="text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gold">
+                {t('scheme:planYouReceive')}
+              </p>
+              <p className="mt-1 font-display text-xl text-gold">{formatINR(summary.maturityValue)}</p>
+            </div>
+          </div>
+          {hasBenefit ? (
+            <p className="mt-3 border-t border-white/10 pt-3 text-xs leading-relaxed text-gold-3/75">
+              {t('scheme:maturityHint')}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mt-auto space-y-2 pt-5">
+          <Button
+            className="w-full"
+            onClick={() => onEnroll(scheme)}
+            disabled={enrollPending || !!existingActiveEnrollment}
+          >
+            {existingActiveEnrollment ? t('scheme:alreadyEnrolled') : t('scheme:enrollNow')}
+          </Button>
+          {existingActiveEnrollment ? (
+            <Button variant="outline" className="w-full" asChild>
+              <Link to={`/scheme/${existingActiveEnrollment.id}`}>{t('scheme:viewScheme')}</Link>
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  )
+}
 
 function SchemePageContent() {
   const { t } = useTranslation(['scheme', 'common', 'errors'])
@@ -30,7 +143,7 @@ function SchemePageContent() {
   if (settings && settings.gold_scheme_enabled === false) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <h1 className="font-display text-3xl text-navy">Gold scheme is currently unavailable.</h1>
+        <h1 className="font-display text-3xl text-navy">{t('scheme:unavailableTitle')}</h1>
         <p className="mt-2 text-sm text-muted">{t('scheme:unavailableDesc')}</p>
         <Button asChild className="mt-6" variant="outline">
           <Link to="/">{t('common:continueShopping')}</Link>
@@ -56,7 +169,7 @@ function SchemePageContent() {
         <div>
           <p className="text-xs font-black uppercase tracking-[.12em] text-gold">{t('scheme:eyebrow')}</p>
           <h1 className="font-display text-[clamp(28px,3.3vw,46px)] text-navy">{t('scheme:title')}</h1>
-          <p className="mt-2 text-sm text-muted">{t('scheme:subtitle')}</p>
+          <p className="mt-2 max-w-2xl text-sm text-muted">{t('scheme:subtitle')}</p>
         </div>
         {enrollments?.length > 0 && (
           <Button asChild>
@@ -69,49 +182,29 @@ function SchemePageContent() {
       </div>
 
       {isLoading ? (
-        <Skeleton className="h-48 w-full rounded-[28px]" />
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-[420px] w-full rounded-[28px]" />
+          ))}
+        </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
           {schemes?.map((scheme) => {
-            const schemeName = pickField(scheme, 'name', lang)
-            const schemeDescription = pickField(scheme, 'description', lang)
             const existingActiveEnrollment = (enrollments || []).find(
               (enrollment) =>
                 enrollment.status === 'active' &&
                 (enrollment.scheme_id === scheme.id ||
                   enrollment.schemes?.id === scheme.id ||
-                  enrollment.scheme?.id === scheme.id)
+                  enrollment.scheme?.id === scheme.id),
             )
             return (
-            <div
-              key={scheme.id}
-              className="rounded-[28px] border border-gold/20 bg-ivory-2 p-6 shadow-[0_14px_34px_rgba(7,21,37,.09)]"
-            >
-              <h2 className="font-display text-xl text-navy">{schemeName}</h2>
-              {schemeDescription && (
-                <p className="mt-2 text-sm text-muted">{schemeDescription}</p>
-              )}
-              <p className="mt-4 font-display text-2xl text-gold">
-                {t('common:perMonth', { amount: formatINR(scheme.monthly_amount) })}
-              </p>
-              <p className="text-xs text-muted">
-                {t('common:monthTenureLabel', { count: scheme.tenure_months })}
-              </p>
-              <div className="mt-4 space-y-2">
-                <Button
-                  className="w-full"
-                  onClick={() => setEnrollScheme(scheme)}
-                  disabled={enroll.isPending || !!existingActiveEnrollment}
-                >
-                  {existingActiveEnrollment ? 'Already enrolled' : t('scheme:enrollNow')}
-                </Button>
-                {existingActiveEnrollment && (
-                  <Button variant="outline" className="w-full" asChild>
-                    <Link to={`/scheme/${existingActiveEnrollment.id}`}>View scheme</Link>
-                  </Button>
-                )}
-              </div>
-            </div>
+              <SchemePlanCard
+                key={scheme.id}
+                scheme={scheme}
+                existingActiveEnrollment={existingActiveEnrollment}
+                onEnroll={setEnrollScheme}
+                enrollPending={enroll.isPending}
+              />
             )
           })}
         </div>

@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ShoppingCart } from 'lucide-react'
-import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { formatINR } from '@/lib/pricing'
-import { usePriceBreakup } from '@/hooks/usePriceBreakup'
 import { getDefaultVariant, getProductCardImages } from '@/hooks/useProducts'
 import { WishlistButton } from '@/components/product/WishlistButton'
 import { AddToBagButton } from '@/components/product/AddToBagButton'
@@ -16,14 +14,15 @@ const easePremium = 'cubic-bezier(0.22, 1, 0.36, 1)'
 const imageClass =
   'absolute inset-0 h-full w-full object-contain p-3 sm:p-4 lg:p-3 transition-[opacity,transform] duration-700 ease-[var(--ease-premium)] will-change-[opacity,transform] motion-reduce:transition-none'
 
-function ProductCardPrice({ variantId }) {
+function ProductCardPrice({ variant }) {
   const { t } = useTranslation('product')
-  const { data: breakup, isLoading } = usePriceBreakup(variantId)
-  if (isLoading) return <Skeleton className="h-4 w-24 lg:h-5 lg:w-28" />
-  if (!breakup) return <span className="text-xs text-muted lg:text-sm">{t('priceUnavailable')}</span>
+  const embeddedTotal = variant?.live_price_total
+  const fixedPrice = Number(variant?.fixed_price)
+  const total = embeddedTotal ?? (Number.isFinite(fixedPrice) && fixedPrice > 0 ? fixedPrice : null)
+  if (total == null) return <span className="text-xs text-muted lg:text-sm">{t('priceUnavailable')}</span>
   return (
     <span className="text-sm font-bold leading-tight text-ink transition-colors duration-500 group-hover:text-navy lg:text-[15px]">
-      {formatINR(breakup.display_total ?? breakup.total)}
+      {formatINR(total)}
     </span>
   )
 }
@@ -91,7 +90,7 @@ export function ProductCard({ product }) {
         <div className="mt-1 flex items-center justify-between gap-1.5 sm:mt-1.5 sm:gap-2">
           <div className="min-w-0 flex-1">
             {variant ? (
-              <ProductCardPrice variantId={variant.id} />
+              <ProductCardPrice variant={variant} />
             ) : (
               <span className="text-xs text-muted lg:text-sm">{t('product:outOfStock')}</span>
             )}

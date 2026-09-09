@@ -2,12 +2,30 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+const COUNTRY_CODES = [
+  { code: '+971', labelKey: 'uae' },
+  { code: '+91', labelKey: 'india' },
+  { code: '+966', labelKey: 'saudi' },
+  { code: '+965', labelKey: 'kuwait' },
+  { code: '+968', labelKey: 'oman' },
+  { code: '+973', labelKey: 'bahrain' },
+  { code: '+974', labelKey: 'qatar' },
+]
 
 export function PhoneLogin({ onSubmit, isLoading }) {
   const { t } = useTranslation(['auth', 'common'])
   const [phone, setPhone] = useState('')
+  const [countryCode, setCountryCode] = useState('+971')
 
-  const normalizePhone = (raw) => {
+  const normalizePhone = (raw, selectedCode) => {
     const input = String(raw || '').trim()
     if (!input) return null
 
@@ -17,26 +35,16 @@ export function PhoneLogin({ onSubmit, isLoading }) {
     }
 
     const digits = input.replace(/\D/g, '')
-    if (!digits) return null
-
-    if (digits.startsWith('971')) {
-      return `+${digits}`
-    }
-
-    if (digits.length === 10 && digits.startsWith('0')) {
-      return `+971${digits.slice(1)}`
-    }
-
-    if (digits.length === 9) {
-      return `+971${digits}`
-    }
-
-    return `+971${digits}`
+    const selectedDigits = String(selectedCode || '+971').replace(/[^\d]/g, '')
+    if (!digits || !selectedDigits) return null
+    if (digits.startsWith(selectedDigits)) return `+${digits}`
+    const localDigits = digits.replace(/^0+/, '')
+    return localDigits ? `+${selectedDigits}${localDigits}` : null
   }
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    const normalized = normalizePhone(phone)
+    const normalized = normalizePhone(phone, countryCode)
     if (!normalized) return
     onSubmit(normalized)
   }
@@ -48,9 +56,18 @@ export function PhoneLogin({ onSubmit, isLoading }) {
           {t('auth:mobileLabel')}
         </label>
         <div className="flex gap-2">
-          <span className="flex h-12 items-center rounded-full border border-gold/20 bg-ivory-3 px-4 text-sm text-muted">
-            {t('auth:countryCodeIn')}
-          </span>
+          <Select value={countryCode} onValueChange={setCountryCode}>
+            <SelectTrigger className="w-33 shrink-0 bg-ivory-3 text-left">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {COUNTRY_CODES.map((option) => (
+                <SelectItem key={option.code} value={option.code}>
+                  {`${option.code} ${t(`auth:countryNames.${option.labelKey}`)}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Input
             id="phone"
             type="tel"
@@ -62,7 +79,7 @@ export function PhoneLogin({ onSubmit, isLoading }) {
             required
           />
         </div>
-        <p className="mt-1 text-xs text-muted">{t('auth:phoneHelper')}</p>
+        <p className="mt-1 text-xs text-muted">{t('auth:phoneHelperWithCode')}</p>
       </div>
       <Button type="submit" className="w-full" disabled={isLoading || !phone.trim()}>
         {isLoading ? t('common:sending') : t('auth:sendOtp')}

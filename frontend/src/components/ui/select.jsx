@@ -3,7 +3,10 @@ import * as SelectPrimitive from '@radix-ui/react-select'
 import { Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const Select = SelectPrimitive.Root
+function Select({ modal = false, ...props }) {
+  return <SelectPrimitive.Root modal={modal} {...props} />
+}
+
 const SelectGroup = SelectPrimitive.Group
 const SelectValue = SelectPrimitive.Value
 
@@ -46,7 +49,7 @@ function SelectScrollDownButton({ className, ...props }) {
   )
 }
 
-function SelectContent({ className, children, position = 'popper', ...props }) {
+function SelectContent({ className, children, position = 'popper', onCloseAutoFocus, onOpenAutoFocus, ...props }) {
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
@@ -57,14 +60,27 @@ function SelectContent({ className, children, position = 'popper', ...props }) {
           className
         )}
         position={position}
+        collisionPadding={8}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          onOpenAutoFocus?.(event)
+          const root = event.currentTarget
+          requestAnimationFrame(() => {
+            const selected = root.querySelector('[data-state="checked"]')
+            selected?.focus({ preventScroll: true })
+          })
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          onCloseAutoFocus?.(event)
+        }}
         {...props}
       >
         <SelectScrollUpButton />
         <SelectPrimitive.Viewport
           className={cn(
             'p-1',
-            position === 'popper' &&
-              'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]'
+            position === 'popper' && 'w-full min-w-[var(--radix-select-trigger-width)]'
           )}
         >
           {children}

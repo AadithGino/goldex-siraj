@@ -92,3 +92,4 @@ export async function getProductById(idOrSlug, options = {}) {
 
 export const getBanners = () => list('banners')
 export const getCurrentGoldRates = async () => (await api.get('/customer/catalog/bootstrap')).gold_rates || []
+export const getCurrentGoldBuybackRates = async () => (await api.get('/customer/catalog/bootstrap')).gold_buyback_rates || []

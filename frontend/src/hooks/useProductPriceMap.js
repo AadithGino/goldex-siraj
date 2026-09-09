@@ -1,33 +1,23 @@
-import { useQueries } from '@tanstack/react-query'
-import { getBreakup } from '@/lib/pricing'
 import { getDefaultVariant } from '@/hooks/useProducts'
 
 export function useProductPriceMap(products) {
-  const entries =
-    products
-      ?.map((product) => {
-        const variant = getDefaultVariant(product)
-        return variant ? { productId: product.id, variantId: variant.id } : null
-      })
-      .filter(Boolean) ?? []
-
-  const queries = useQueries({
-    queries: entries.map(({ variantId }) => ({
-      queryKey: ['price-breakup', variantId],
-      queryFn: () => getBreakup(variantId),
-      staleTime: 1000 * 10,
-      refetchOnWindowFocus: true,
-    })),
-  })
-
   const priceMap = {}
-  entries.forEach(({ variantId }, index) => {
-    const total = queries[index]?.data?.total
-    if (total != null) priceMap[variantId] = Number(total)
+  const list = Array.isArray(products) ? products : []
+  list.forEach((product) => {
+    const variants = product?.product_variants || product?.variants || []
+    variants.forEach((variant) => {
+      const total = variant?.live_price_total
+      if (variant?.id && total != null) priceMap[variant.id] = Number(total)
+    })
+    const fallback = getDefaultVariant(product)
+    if (fallback?.id && priceMap[fallback.id] == null) {
+      const total = fallback?.live_price_total
+      if (total != null) priceMap[fallback.id] = Number(total)
+    }
   })
 
   return {
     priceMap,
-    isLoadingPrices: queries.some((q) => q.isLoading),
+    isLoadingPrices: false,
   }
 }
