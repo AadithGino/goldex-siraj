@@ -29,8 +29,21 @@ export async function paymobConfirm(req, res) {
 }
 
 export async function onlineCheckout(req, res) {
-  const result = await orderService.createOnlineCheckoutForOrder(req.auth.sub, req.params.id)
+  const requestedProvider = req.validated?.body?.payment_provider || req.body?.payment_provider || null
+  const result = await orderService.createOnlineCheckoutForOrder(req.auth.sub, req.params.id, requestedProvider)
   await ok(res, result)
+}
+
+export async function changePaymentMethod(req, res) {
+  const input = req.validated?.body || req.body || {}
+  const result = await orderService.changePendingPaymentMethod(req.auth.sub, req.params.id, input)
+  const enriched = await orderService.getCustomerOrder(req.auth.sub, result.order.id)
+  const dto = toCustomerOrderDto(enriched.order, {
+    returns: enriched.order.returns || [],
+    displayImageByProductId: enriched.displayImageByProductId,
+  })
+  if (result.checkout_url) dto.checkout_url = result.checkout_url
+  await ok(res, dto)
 }
 
 export async function onlineConfirm(req, res) {

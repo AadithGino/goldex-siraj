@@ -41,115 +41,16 @@ export function AdminOrderFulfillmentSidebar({ order }) {
     setAmountConfirmed(false)
   }
 
+  const showManualVerify = order?.payment_method === 'manual' && order.payment_status !== 'paid' && canRecordPayments
+  const showCodCollect = order?.pricing_mode === 'cod_delivery' && !order.finalized_at && order.status === 'shipped' && canRecordPayments
+
   return (
-    <div className="space-y-2">
-      <CompactPanel
-        title="Ship to (UAE)"
-        action={<CopyTextButton text={copyBlock} label="Copy all" />}
-      >
-        <dl className="mb-2 space-y-0.5 text-xs">
-          <div>
-            <dt className="text-muted">Customer</dt>
-            <dd className="font-medium text-navy">{customer?.full_name}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Phone</dt>
-            <dd>{formatPhoneUAE(customer?.phone)}</dd>
-          </div>
-          {customer?.email && (
-            <div>
-              <dt className="text-muted">Email</dt>
-              <dd className="break-all">{customer.email}</dd>
-            </div>
-          )}
-        </dl>
-        <AddressDisplayMono address={shipTo} />
-      </CompactPanel>
-
-      <AdminOrderPaymentPanel order={order} />
-
-      {(order?.payment_status === 'paid' || order?.payment_events?.length) && (
-        <AdminOrderPaymentEventsPanel orderId={order.id} events={order.payment_events} />
-      )}
-
-      {order?.pricing_mode === 'cod_delivery' && (
-        <CompactPanel title="COD @ delivery">
-          <dl className="space-y-1 text-xs">
-            <div className="flex justify-between">
-              <dt className="text-muted">Estimate</dt>
-              <dd>{formatAED(order.estimated_total)}</dd>
-            </div>
-            {order.final_total != null && (
-              <div className="flex justify-between font-semibold">
-                <dt>Final</dt>
-                <dd>{formatAED(order.final_total)}</dd>
-              </div>
-            )}
-            {order.amount_due != null && (
-              <div className="flex justify-between border-t border-line pt-1 font-semibold text-navy">
-                <dt>Collect</dt>
-                <dd>{formatAED(order.amount_due)}</dd>
-              </div>
-            )}
-          </dl>
-          {!order.finalized_at && order.status === 'shipped' && canRecordPayments && (
-            <div className="mt-2 space-y-2">
-              <p className="text-[11px] text-muted">
-                Expected cash at handover: <strong className="text-navy">{formatAED(expected)}</strong>
-                {' '}(live gold rate applied now). Enter the amount actually collected.
-              </p>
-              <Input
-                className="h-9 text-xs"
-                type="number"
-                step="0.01"
-                min="0"
-                value={amountCollected}
-                onChange={(event) => {
-                  setAmountCollected(event.target.value)
-                  setAmountConfirmed(false)
-                }}
-                placeholder="Amount collected (AED)"
-              />
-              <label className="flex items-start gap-2 text-[11px] text-navy">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={amountConfirmed}
-                  onChange={(event) => setAmountConfirmed(event.target.checked)}
-                />
-                I confirm AED {Number.isFinite(parsedCollected) ? parsedCollected.toFixed(2) : '—'} was collected in cash.
-              </label>
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                disabled={finalizeCod.isPending || !amountOk || !amountConfirmed}
-                onClick={async () => {
-                  if (!window.confirm('Confirm the package is in the customer\'s hand and cash has been collected? The live gold rate will be applied now.')) return
-                  try {
-                    const r = await finalizeCod.mutateAsync({
-                      orderId: order.id,
-                      amountCollected: parsedCollected,
-                    })
-                    toast.success(`Delivered and collected: ${formatAED(r.final_total)}`)
-                    resetAmountUi()
-                  } catch (err) {
-                    toast.error(err.message || 'Could not finalize')
-                  }
-                }}
-              >
-                {finalizeCod.isPending ? 'Completing handover…' : 'Confirm handover & collect cash'}
-              </Button>
-            </div>
-          )}
-          {!order.finalized_at && order.status !== 'shipped' && (
-            <p className="mt-2 text-[11px] text-muted">Mark the order shipped before confirming physical handover.</p>
-          )}
-        </CompactPanel>
-      )}
-
-      {order?.payment_method === 'manual' && order.payment_status !== 'paid' && canRecordPayments && (
-        <CompactPanel title="Verify bank / card payment">
+    <div className="min-w-0 space-y-3">
+      {showManualVerify && (
+        <CompactPanel
+          title="Verify payment"
+          className="border-gold/40 ring-1 ring-gold/20"
+        >
           <div className="space-y-2">
             <p className="text-[11px] text-muted">
               Locked placement total: <strong className="text-navy">{formatAED(expected)}</strong>. Confirm the amount received before marking paid.
@@ -214,6 +115,111 @@ export function AdminOrderFulfillmentSidebar({ order }) {
             </Button>
           </div>
         </CompactPanel>
+      )}
+
+      {order?.pricing_mode === 'cod_delivery' && (
+        <CompactPanel title="COD @ delivery" className={showCodCollect ? 'border-gold/40 ring-1 ring-gold/20' : undefined}>
+          <dl className="space-y-1 text-xs">
+            <div className="flex justify-between">
+              <dt className="text-muted">Estimate</dt>
+              <dd>{formatAED(order.estimated_total)}</dd>
+            </div>
+            {order.final_total != null && (
+              <div className="flex justify-between font-semibold">
+                <dt>Final</dt>
+                <dd>{formatAED(order.final_total)}</dd>
+              </div>
+            )}
+            {order.amount_due != null && (
+              <div className="flex justify-between border-t border-line pt-1 font-semibold text-navy">
+                <dt>Collect</dt>
+                <dd>{formatAED(order.amount_due)}</dd>
+              </div>
+            )}
+          </dl>
+          {showCodCollect && (
+            <div className="mt-2 space-y-2">
+              <p className="text-[11px] text-muted">
+                Expected cash at handover: <strong className="text-navy">{formatAED(expected)}</strong>
+                {' '}(live gold rate applied now). Enter the amount actually collected.
+              </p>
+              <Input
+                className="h-9 text-xs"
+                type="number"
+                step="0.01"
+                min="0"
+                value={amountCollected}
+                onChange={(event) => {
+                  setAmountCollected(event.target.value)
+                  setAmountConfirmed(false)
+                }}
+                placeholder="Amount collected (AED)"
+              />
+              <label className="flex items-start gap-2 text-[11px] text-navy">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={amountConfirmed}
+                  onChange={(event) => setAmountConfirmed(event.target.checked)}
+                />
+                I confirm AED {Number.isFinite(parsedCollected) ? parsedCollected.toFixed(2) : '—'} was collected in cash.
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                disabled={finalizeCod.isPending || !amountOk || !amountConfirmed}
+                onClick={async () => {
+                  if (!window.confirm('Confirm the package is in the customer\'s hand and cash has been collected? The live gold rate will be applied now.')) return
+                  try {
+                    const r = await finalizeCod.mutateAsync({
+                      orderId: order.id,
+                      amountCollected: parsedCollected,
+                    })
+                    toast.success(`Delivered and collected: ${formatAED(r.final_total)}`)
+                    resetAmountUi()
+                  } catch (err) {
+                    toast.error(err.message || 'Could not finalize')
+                  }
+                }}
+              >
+                {finalizeCod.isPending ? 'Completing handover…' : 'Confirm handover & collect cash'}
+              </Button>
+            </div>
+          )}
+          {!order.finalized_at && order.status !== 'shipped' && (
+            <p className="mt-2 text-[11px] text-muted">Mark the order shipped before confirming physical handover.</p>
+          )}
+        </CompactPanel>
+      )}
+
+      <AdminOrderPaymentPanel order={order} />
+
+      <CompactPanel
+        title="Customer & delivery"
+        action={<CopyTextButton text={copyBlock} label="Copy all" />}
+      >
+        <dl className="mb-2 space-y-0.5 text-xs">
+          <div>
+            <dt className="text-muted">Customer</dt>
+            <dd className="font-medium text-navy">{customer?.full_name}</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Phone</dt>
+            <dd>{formatPhoneUAE(customer?.phone)}</dd>
+          </div>
+          {customer?.email && (
+            <div>
+              <dt className="text-muted">Email</dt>
+              <dd className="break-all">{customer.email}</dd>
+            </div>
+          )}
+        </dl>
+        <AddressDisplayMono address={shipTo} />
+      </CompactPanel>
+
+      {(order?.payment_status === 'paid' || order?.payment_events?.length) && (
+        <AdminOrderPaymentEventsPanel orderId={order.id} events={order.payment_events} />
       )}
     </div>
   )

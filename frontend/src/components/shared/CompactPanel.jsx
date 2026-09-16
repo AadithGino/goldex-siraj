@@ -6,11 +6,11 @@ import { copyTextToClipboard } from '@/lib/addressFormat'
 /** Dense admin/utility panel — avoids large rounded cards */
 export function CompactPanel({ title, action, children, className }) {
   return (
-    <section className={cn('rounded-lg border border-line bg-white', className)}>
+    <section className={cn('min-w-0 overflow-hidden rounded-lg border border-line bg-white', className)}>
       {(title || action) && (
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
           {title ? (
-            <h3 className="text-xs font-bold uppercase tracking-wide text-navy">{title}</h3>
+            <h3 className="min-w-0 truncate text-xs font-bold uppercase tracking-wide text-navy">{title}</h3>
           ) : (
             <span />
           )}

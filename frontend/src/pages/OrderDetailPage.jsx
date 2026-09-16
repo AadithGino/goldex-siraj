@@ -9,6 +9,7 @@ import {
   useOrder,
   usePaymobCheckout,
   usePaymobConfirm,
+  useChangeOrderPayment,
 } from "@/hooks/useOrders";
 import { formatINR } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
@@ -41,9 +42,22 @@ function OrderDetailContent() {
   const { data: storeSettings } = useStoreSettings();
   const paymobCheckout = usePaymobCheckout();
   const paymobConfirm = usePaymobConfirm();
+  const changePayment = useChangeOrderPayment();
 
   useEffect(() => {
     const payment = searchParams.get("payment");
+    const successRaw = String(searchParams.get("success") || "").toLowerCase();
+    const isCancelledReturn =
+      payment === "cancelled" ||
+      payment === "failed" ||
+      successRaw === "false" ||
+      successRaw === "0";
+    if (isCancelledReturn) {
+      toast.message("Payment was not completed. You can retry or choose another method.");
+      setSearchParams({}, { replace: true });
+      refetch();
+      return;
+    }
     const hasPaymobResult = searchParams.get("id") && searchParams.get("hmac");
     const isTabbyReturn =
       payment === "return" &&
@@ -167,17 +181,51 @@ function OrderDetailContent() {
   const collection = order.payment_collection;
   const awaitingManual =
     order.payment_method === "manual" && order.payment_status === "pending";
+  const canChangePayment =
+    order.status === "placed" &&
+    ["pending", "cod_pending"].includes(order.payment_status);
   const awaitingOnline =
     order.payment_method === "online" && order.payment_status === "pending";
-  const onlineProviderLabel = order.payment_provider === "tabby"
-    ? "Tabby"
-    : order.payment_provider === "paymob"
-      ? "Paymob"
-      : storeSettings?.online_checkout_provider === "tabby"
-        ? "Tabby"
-        : "Paymob";
+  const tabbyEnabled = storeSettings?.tabby_configured === true;
+  const paymobEnabled = storeSettings?.paymob_configured === true;
+  const onlineEnabled = storeSettings?.online_checkout_enabled === true;
+  const codEnabled = storeSettings?.cod_enabled === true;
+  const bankEnabled = storeSettings?.bank_transfer_enabled !== false;
+  const paymentBusy = paymobCheckout.isPending || changePayment.isPending;
   const verifiedManual =
     order.payment_method === "manual" && order.payment_status === "paid";
+
+  const startOnlinePayment = async (provider) => {
+    try {
+      const result = provider && provider !== order.payment_provider
+        ? await changePayment.mutateAsync({
+            orderId: order.id,
+            paymentMethod: "online",
+            paymentProvider: provider,
+          })
+        : await paymobCheckout.mutateAsync({
+            orderId: order.id,
+            paymentProvider: provider || order.payment_provider,
+          });
+      const checkoutUrl = result?.checkout_url;
+      if (checkoutUrl) window.location.assign(checkoutUrl);
+    } catch (err) {
+      toast.error(err.message || "Could not start online payment");
+    }
+  };
+
+  const switchPaymentMethod = async (paymentMethod) => {
+    try {
+      await changePayment.mutateAsync({ orderId: order.id, paymentMethod });
+      toast.success(
+        paymentMethod === "cod"
+          ? "Switched to cash on delivery"
+          : "Switched to bank transfer. The store will verify payment.",
+      );
+    } catch (err) {
+      toast.error(err.message || "Could not change payment method");
+    }
+  };
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
@@ -288,34 +336,54 @@ function OrderDetailContent() {
                   <p>{t("orders:codPriceMayVary")}</p>
                 </div>
               )}
-              {awaitingOnline && (
+              {canChangePayment && (
                 <div className="rounded-md border border-gold/30 bg-gold/10 px-2 py-2 text-xs text-navy">
-                  <p>
-                    Card payment is pending. Complete checkout on {onlineProviderLabel} to
-                    confirm this order.
+                  <p className="font-semibold">
+                    {awaitingOnline
+                      ? "Online payment is not complete. Retry or choose another method."
+                      : "You can still change how you pay for this order."}
                   </p>
-                  <Button
-                    size="sm"
-                    className="mt-2"
-                    disabled={paymobCheckout.isPending}
-                    onClick={async () => {
-                      try {
-                        const result = await paymobCheckout.mutateAsync(
-                          order.id,
-                        );
-                        if (result?.checkout_url)
-                          window.location.href = result.checkout_url;
-                      } catch (err) {
-                        toast.error(
-                          err.message || "Could not start online payment",
-                        );
-                      }
-                    }}
-                  >
-                    {paymobCheckout.isPending
-                      ? "Starting payment…"
-                      : `Pay with ${onlineProviderLabel}`}
-                  </Button>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {onlineEnabled && paymobEnabled && (
+                      <Button
+                        size="sm"
+                        disabled={paymentBusy}
+                        onClick={() => startOnlinePayment("paymob")}
+                      >
+                        {paymentBusy ? "Starting payment…" : "Pay with card (Paymob)"}
+                      </Button>
+                    )}
+                    {onlineEnabled && tabbyEnabled && (
+                      <Button
+                        size="sm"
+                        variant={paymobEnabled ? "outline" : "default"}
+                        disabled={paymentBusy}
+                        onClick={() => startOnlinePayment("tabby")}
+                      >
+                        {paymentBusy ? "Starting payment…" : "Pay with Tabby"}
+                      </Button>
+                    )}
+                    {codEnabled && order.payment_method !== "cod" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={paymentBusy}
+                        onClick={() => switchPaymentMethod("cod")}
+                      >
+                        Switch to cash on delivery
+                      </Button>
+                    )}
+                    {bankEnabled && order.payment_method !== "manual" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={paymentBusy}
+                        onClick={() => switchPaymentMethod("manual")}
+                      >
+                        Switch to bank transfer
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
               {awaitingManual && (

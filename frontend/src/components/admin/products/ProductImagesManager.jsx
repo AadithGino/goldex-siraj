@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react'
-import { Plus, Star, Trash2, Upload, Loader2 } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
+import { Plus, Star, Trash2, Upload, Loader2, Camera, Images } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useAdminProductMutations } from '@/hooks/useAdminProducts'
@@ -9,6 +9,8 @@ export function ProductImagesManager({ productId, images = [] }) {
   const { addImage, deleteImage, setPrimaryImage } = useAdminProductMutations()
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const cameraInputRef = useRef(null)
+  const galleryInputRef = useRef(null)
 
   const sorted = [...images].sort(
     (a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || Number(b.is_primary) - Number(a.is_primary)
@@ -58,16 +60,59 @@ export function ProductImagesManager({ productId, images = [] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted">
-        Add multiple photos — drag & drop or browse. The <strong className="text-navy">primary</strong> image
-        appears on listing cards. Customers see all images in the product gallery.
+        Add multiple photos. On mobile, use camera or gallery directly. The{' '}
+        <strong className="text-navy">primary</strong> image appears on listing cards.
       </p>
+
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        disabled={uploading}
+        onChange={onInputChange}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
+        multiple
+        className="hidden"
+        disabled={uploading}
+        onChange={onInputChange}
+      />
+
+      <div className="grid grid-cols-1 gap-3 sm:hidden">
+        <Button
+          type="button"
+          size="lg"
+          className="h-12 justify-start gap-2 rounded-2xl"
+          disabled={uploading}
+          onClick={() => cameraInputRef.current?.click()}
+        >
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+          Take photo
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="h-12 justify-start gap-2 rounded-2xl"
+          disabled={uploading}
+          onClick={() => galleryInputRef.current?.click()}
+        >
+          <Images className="h-4 w-4" />
+          Choose photos
+        </Button>
+      </div>
 
       <label
         onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
         className={cn(
-          'flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 transition-colors',
+          'hidden cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 transition-colors sm:flex',
           dragOver ? 'border-gold bg-gold/5' : 'border-gold/30 bg-ivory-2 hover:border-gold/50',
           uploading && 'pointer-events-none opacity-60'
         )}
@@ -91,13 +136,13 @@ export function ProductImagesManager({ productId, images = [] }) {
         />
       </label>
 
-      <div className="flex items-center gap-2">
+      <div className="hidden items-center gap-2 sm:flex">
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-gold/30 bg-ivory-2 px-4 py-2 text-sm font-semibold text-navy hover:border-gold">
           <Plus className="h-4 w-4" />
           Add more images
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif"
             multiple
             className="hidden"
             disabled={uploading}

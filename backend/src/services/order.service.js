@@ -890,13 +890,92 @@ export async function createTabbyCheckoutForOrder(customerId, orderId) {
   return { checkout_url: tabby.checkoutUrl }
 }
 
-export async function createOnlineCheckoutForOrder(customerId, orderId) {
+export async function createOnlineCheckoutForOrder(customerId, orderId, requestedProvider = null) {
   const order = await Order.findOne({ _id: orderId, customerId })
   if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
-  const provider = order.paymentProvider || resolveOnlineProvider(null)
+  if (order.paymentStatus === 'paid') throw new AppError(409, 'ORDER_ALREADY_PAID', 'Order is already paid')
+  if (['cancelled', 'returned'].includes(order.status)) {
+    throw new AppError(409, 'ORDER_CLOSED', 'Closed order cannot be paid')
+  }
+  const provider = resolveOnlineProvider(requestedProvider || order.paymentProvider)
   if (provider === 'tabby') return createTabbyCheckoutForOrder(customerId, orderId)
   if (provider === 'paymob') return createPaymobCheckoutForOrder(customerId, orderId)
   throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
+}
+
+export async function changePendingPaymentMethod(customerId, orderId, input = {}) {
+  const order = await Order.findOne({ _id: orderId, customerId })
+  if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  if (order.paymentStatus === 'paid') throw new AppError(409, 'ORDER_ALREADY_PAID', 'Order is already paid')
+  if (order.status !== 'placed') {
+    throw new AppError(409, 'PAYMENT_METHOD_LOCKED', 'Payment method can only be changed before the order is confirmed')
+  }
+  if (!['pending', 'cod_pending'].includes(order.paymentStatus)) {
+    throw new AppError(409, 'PAYMENT_METHOD_LOCKED', 'This order can no longer change payment method')
+  }
+
+  const settings = await StoreSetting.findOne({ singleton: 'default' })
+  const method = input.payment_method === 'cod'
+    ? 'cod'
+    : input.payment_method === 'online'
+      ? 'online'
+      : 'manual'
+  const requestedProvider = input.payment_provider === 'tabby'
+    ? 'tabby'
+    : input.payment_provider === 'paymob'
+      ? 'paymob'
+      : null
+
+  if (method === 'cod') {
+    if (settings && !settings.codEnabled) throw new AppError(409, 'COD_DISABLED', 'Cash on delivery is unavailable')
+    assertCheckoutLimits(settings, 'cod', order.total)
+    order.paymentMethod = 'cod'
+    order.paymentMode = 'cash'
+    order.paymentStatus = 'cod_pending'
+    order.pricingMode = 'cod_delivery'
+    order.paymentProvider = null
+    order.statusHistory.push({ status: order.status, note: 'Payment method changed to cash on delivery' })
+    await order.save()
+    return { order }
+  }
+
+  if (method === 'manual') {
+    if (settings && !settings.bankTransferEnabled) throw new AppError(409, 'BANK_TRANSFER_DISABLED', 'Bank transfer is unavailable')
+    order.paymentMethod = 'manual'
+    order.paymentMode = 'bank_transfer'
+    order.paymentStatus = 'pending'
+    order.pricingMode = 'manual_locked'
+    order.paymentProvider = null
+    order.statusHistory.push({ status: order.status, note: 'Payment method changed to bank transfer' })
+    await order.save()
+    return { order }
+  }
+
+  if (settings && !settings.onlinePaymentEnabled) {
+    throw new AppError(409, 'ONLINE_PAYMENT_DISABLED', 'Online payment is unavailable')
+  }
+  const provider = resolveOnlineProvider(requestedProvider)
+  if (!provider) throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
+  if (requestedProvider && provider !== requestedProvider) {
+    throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', `${requestedProvider} is not configured`)
+  }
+
+  order.paymentMethod = 'online'
+  order.paymentMode = 'card'
+  order.paymentStatus = 'pending'
+  order.pricingMode = 'manual_locked'
+  order.paymentProvider = provider
+  order.statusHistory.push({
+    status: order.status,
+    note: `Payment method changed to ${provider === 'tabby' ? 'Tabby' : 'Paymob'}`,
+  })
+  await order.save()
+
+  const checkout = provider === 'tabby'
+    ? await createTabbyCheckoutForOrder(customerId, orderId)
+    : await createPaymobCheckoutForOrder(customerId, orderId)
+  const fresh = await Order.findById(order.id)
+  return { order: fresh, checkout_url: checkout.checkout_url }
 }
 
 /**

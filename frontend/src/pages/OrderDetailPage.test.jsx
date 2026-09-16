@@ -57,6 +57,9 @@ vi.mock('@/hooks/useOrders', () => ({
     error: null,
     refetch: vi.fn(),
   }),
+  usePaymobCheckout: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  usePaymobConfirm: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useChangeOrderPayment: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 vi.mock('@/hooks/useReturns', () => ({

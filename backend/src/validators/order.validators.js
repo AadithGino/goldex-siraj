@@ -11,6 +11,14 @@ export const envelope = (body, params = z.object({}).passthrough(), query = z.ob
   query,
 })
 
+export const changePendingPaymentSchema = envelope(
+  z.object({
+    payment_method: z.enum(['cod', 'manual', 'online']),
+    payment_provider: z.enum(['paymob', 'tabby']).optional(),
+  }),
+  z.object({ id: objectId }),
+)
+
 export const placeOrderSchema = envelope(z.object({
   address_id: objectId,
   payment_method: z.enum(['cod', 'manual', 'online']),

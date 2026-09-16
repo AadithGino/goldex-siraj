@@ -61,7 +61,7 @@ export function AdminOrderTrackingPanel({ order }) {
       : 'Note to customer (optional)'
 
   return (
-    <section className="rounded-lg border-2 border-navy/20 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-lg border-2 border-navy/20 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-navy px-3 py-2">
         <h2 className="text-xs font-bold uppercase tracking-wide text-gold-3">
           Fulfillment & tracking
@@ -91,7 +91,7 @@ export function AdminOrderTrackingPanel({ order }) {
                   <div
                     key={status}
                     className={cn(
-                      'flex min-w-0 flex-1 items-center gap-1 rounded-md border px-2 py-1.5 text-[10px] font-semibold sm:text-xs',
+                      'inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1.5 text-[10px] font-semibold sm:text-xs',
                       done
                         ? 'border-navy/30 bg-ivory-3 text-navy'
                         : 'border-line bg-white text-muted',
@@ -106,7 +106,7 @@ export function AdminOrderTrackingPanel({ order }) {
                     >
                       {done ? '✓' : index + 1}
                     </span>
-                    <span className="truncate">{ORDER_STATUS_LABELS[status]}</span>
+                    <span className="whitespace-nowrap">{ORDER_STATUS_LABELS[status]}</span>
                   </div>
                 )
               })}
@@ -150,11 +150,11 @@ export function AdminOrderTrackingPanel({ order }) {
         )}
 
         {order.order_status_history?.length > 0 && (
-          <div className="mt-3 border-t border-line pt-2">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-muted">
-              History
-            </p>
-            <ul className="max-h-40 space-y-1 overflow-y-auto text-[11px]">
+          <details className="mt-3 border-t border-line pt-2">
+            <summary className="cursor-pointer text-[10px] font-bold uppercase tracking-wide text-muted">
+              History ({order.order_status_history.length})
+            </summary>
+            <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto text-[11px]">
               {[...(order.order_status_history || [])].reverse().map((entry) => (
                 <li key={entry.id} className="flex flex-wrap gap-x-2 text-muted">
                   <span className="font-medium text-navy">
@@ -169,7 +169,7 @@ export function AdminOrderTrackingPanel({ order }) {
                 </li>
               ))}
             </ul>
-          </div>
+          </details>
         )}
       </div>
     </section>

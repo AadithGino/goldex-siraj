@@ -23,7 +23,38 @@ export function useOrder(orderId) {
 
 export function usePaymobCheckout() {
   return useMutation({
-    mutationFn: (orderId) => api.post(`/customer/orders/${orderId}/online-checkout`),
+    mutationFn: (orderIdOrPayload) => {
+      const orderId = typeof orderIdOrPayload === 'string'
+        ? orderIdOrPayload
+        : orderIdOrPayload?.orderId
+      const paymentProvider = typeof orderIdOrPayload === 'object'
+        ? orderIdOrPayload?.paymentProvider
+        : null
+      return api.post(`/customer/orders/${orderId}/online-checkout`, {
+        ...(paymentProvider ? { payment_provider: paymentProvider } : {}),
+      })
+    },
+  })
+}
+
+export function useChangeOrderPayment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ orderId, paymentMethod, paymentProvider = null }) => {
+      const order = await api.post(`/customer/orders/${orderId}/payment-method`, {
+        payment_method: paymentMethod,
+        ...(paymentProvider ? { payment_provider: paymentProvider } : {}),
+      })
+      return {
+        ...adaptOrder(order),
+        checkout_url: order.checkout_url || null,
+      }
+    },
+    onSuccess: (order) => {
+      if (order?.id) queryClient.setQueryData(['order', order.id], adaptOrder(order))
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      queryClient.invalidateQueries({ queryKey: ['order'] })
+    },
   })
 }
 

@@ -131,13 +131,9 @@ export function AdminOrderDetailPage() {
         </div>
       )}
 
-      {/* Priority 1: tracking */}
-      <div className="mb-3 lg:sticky lg:top-20 lg:z-10">
-        <AdminOrderTrackingPanel order={order} />
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-[1fr_260px] lg:items-start">
+      <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
         <div className="min-w-0 space-y-3">
+          <AdminOrderTrackingPanel order={order} />
           <AdminOrderItemsPanel order={order} />
           {hasReturns && (
             <AdminOrderReturnsPanel returns={order.returns} orderStatus={order.status} />

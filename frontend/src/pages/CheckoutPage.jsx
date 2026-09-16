@@ -46,6 +46,7 @@ function CheckoutPageContent() {
       : `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`
   )
   const expectedTotalRef = useRef(null)
+  const [leavingForPayment, setLeavingForPayment] = useState(false)
 
   const totals = useCartTotals(items, appliedCoupon?.code || null)
 
@@ -112,17 +113,20 @@ function CheckoutPageContent() {
           : t('common:orderPlaced', { number: result.order_number }))
 
       if (result.checkout_url) {
-        window.location.href = result.checkout_url
+        setLeavingForPayment(true)
+        navigate(`/orders/${result.order_id}`, { replace: true })
+        window.location.assign(result.checkout_url)
         return
       }
 
       navigate(`/orders/${result.order_id}`, { replace: true })
     } catch (err) {
+      setLeavingForPayment(false)
       toast.error(err.message || t('errors:checkout.placeOrderFailed'))
     }
   }
 
-  if (!cartLoading && !items.length) {
+  if (!cartLoading && !items.length && !isPlacing && !leavingForPayment) {
     navigate('/cart', { replace: true })
     return null
   }
