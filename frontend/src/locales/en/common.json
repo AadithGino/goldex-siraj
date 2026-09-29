@@ -70,7 +70,7 @@
   "copyright": "© {{year}} {{storeName}}. All rights reserved.",
   "footerTagline": "Handcrafted gold & diamond jewellery with quality certification.",
   "storeNameFallback": "THE GOLDEX JEWELLERY L.L.C",
-  "footerComplianceEmail": "Compliance",
+  "footerWhatsApp": "WhatsApp",
   "goldRatePerGram": "22K {{rate}}/g",
   "goldRateTickerAria": "Live gold rates",
   "liveGoldRate": "Live 22K: {{rate}}/g",

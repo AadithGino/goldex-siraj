@@ -1,4 +1,5 @@
 import * as orderService from '../../services/order.service.js'
+import { abandonTabbyOrder } from '../../services/tabby.payment.service.js'
 import { ok } from '../../utils/apiResponse.js'
 import { toCustomerOrderDto } from '../../utils/customerOrderDto.js'
 
@@ -29,8 +30,18 @@ export async function paymobConfirm(req, res) {
 }
 
 export async function onlineCheckout(req, res) {
-  const requestedProvider = req.validated?.body?.payment_provider || req.body?.payment_provider || null
-  const result = await orderService.createOnlineCheckoutForOrder(req.auth.sub, req.params.id, requestedProvider)
+  const body = req.validated?.body || req.body || {}
+  const result = await orderService.createOnlineCheckoutForOrder(req.auth.sub, req.params.id, body.payment_provider || null, { lang: body.lang })
+  await ok(res, result)
+}
+
+export async function tabbyEligibility(req, res) {
+  const result = await orderService.checkTabbyEligibility(req.auth.sub, req.validated?.body || req.body || {})
+  await ok(res, result)
+}
+
+export async function tabbyAbandon(req, res) {
+  const result = await abandonTabbyOrder(req.auth.sub, req.params.id)
   await ok(res, result)
 }
 

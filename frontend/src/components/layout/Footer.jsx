@@ -6,7 +6,8 @@ import { BrandWordmark } from '@/components/ui/BrandLogo'
 import { useContentLang } from '@/hooks/useContentLang'
 import {
   STORE_EMAIL,
-  STORE_COMPLIANCE_EMAIL,
+  STORE_WHATSAPP_DISPLAY,
+  STORE_WHATSAPP_E164,
   getStoreLegalName,
 } from '@/lib/storeIdentity'
 import { PolicyLinks } from '@/components/legal/PolicyLinks'
@@ -147,9 +148,14 @@ export function Footer() {
                 </a>
               </li>
               <li>
-                <span className="text-gold-3/60">{t('common:footerComplianceEmail')}: </span>
-                <a href={`mailto:${STORE_COMPLIANCE_EMAIL}`} className="hover:text-gold">
-                  {STORE_COMPLIANCE_EMAIL}
+                <a
+                  href={`https://wa.me/${STORE_WHATSAPP_E164}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-gold"
+                  dir="ltr"
+                >
+                  {t('common:footerWhatsApp')} {STORE_WHATSAPP_DISPLAY}
                 </a>
               </li>
             </ul>

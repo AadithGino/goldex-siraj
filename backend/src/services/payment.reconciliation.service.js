@@ -7,16 +7,12 @@ import {
   isPaymobSuccessFlag,
   paymobTransactionBelongsToOrder,
 } from './paymob.service.js'
-import {
-  extractTabbyPaymentData,
-  getTabbyConfig,
-  getTabbyCheckout,
-  getTabbyPayment,
-  isTabbyPendingStatus,
-  isTabbySuccessStatus,
-  resolveGoldexOrderIdFromTabbyReference,
-} from './tabby.service.js'
-import { applyOnlinePaymentFromProvider } from './order.service.js'
+import { getTabbyConfig } from './tabby.service.js'
+import { finalizeTabbyPayment } from './tabby.payment.service.js'
+import { applyOnlinePaymentFromProvider, cancelOrder } from './order.service.js'
+
+// Past this, uncaptured payments need manual capture/close on the Tabby Merchant Dashboard.
+const MAX_TABBY_CAPTURE_ATTEMPTS = 20
 
 function inferProvider(order) {
   if (order?.paymentProvider === 'tabby' || order?.tabbyPaymentId || order?.tabbyCheckoutId || order?.tabbyReference) return 'tabby'
@@ -61,46 +57,46 @@ async function reconcilePaymobOrder(order) {
 }
 
 async function reconcileTabbyOrder(order) {
-  const payload = order.tabbyPaymentId
-    ? await getTabbyPayment(order.tabbyPaymentId)
-    : await getTabbyCheckout(order.tabbyCheckoutId)
-  if (!payload) return { outcome: 'pending', reason: 'inquiry_not_found' }
-
-  const payment = extractTabbyPaymentData(payload)
-  if (!payment.id) return { outcome: 'pending', reason: 'payment_id_missing' }
-  if (isTabbyPendingStatus(payment.status)) return { outcome: 'pending', reason: 'still_pending' }
-  if (!isTabbySuccessStatus(payment.status)) return { outcome: 'not_success', reason: String(payment.status || 'unknown') }
-  if (!Number.isFinite(payment.amount) || payment.amount <= 0) return { outcome: 'invalid_amount', reason: 'amount_missing' }
-
-  const refOrderId = resolveGoldexOrderIdFromTabbyReference(payment.orderReference)
-  if (refOrderId && refOrderId !== String(order._id)) {
-    logger.warn({ orderId: String(order._id), refOrderId, paymentId: payment.id }, 'Payment reconciliation skipped mismatched Tabby reference')
-    return { outcome: 'mismatch', reason: 'order_mismatch' }
+  if (!order.tabbyPaymentId) return { outcome: 'pending', reason: 'payment_id_missing' }
+  const result = await finalizeTabbyPayment(order._id, { paymentId: order.tabbyPaymentId, source: 'reconciliation' })
+  if (result.outcome === 'paid') return { outcome: 'paid' }
+  if (['rejected', 'expired', 'closed_uncaptured'].includes(result.outcome)) {
+    // Checkout-originated attempts kept the bag; release their stock/wallet/coupon hold.
+    if (order.tabbyCartRetained && order.paymentStatus === 'pending' && order.status === 'placed') {
+      await cancelOrder(order._id, null, `Tabby payment ${result.outcome}`)
+    }
+    return { outcome: 'not_success', reason: result.outcome }
   }
-
-  await applyOnlinePaymentFromProvider(order._id, {
-    transactionId: String(payment.id),
-    amount: payment.amount,
-    payload: {
-      provider: 'tabby',
-      source: 'reconciliation',
-      payment: payload,
-    },
-  })
-  return { outcome: 'paid' }
+  return { outcome: 'pending', reason: result.outcome }
 }
 
 export async function reconcilePendingOnlinePayments({ limit = 25 } = {}) {
   const batchSize = Math.max(1, Number(limit) || 25)
   const paymobConfigured = getPaymobConfig().isConfigured
   const tabbyConfigured = getTabbyConfig().isConfigured
-  const candidates = await Order.find({
-    paymentMethod: 'online',
-    paymentStatus: 'pending',
-    status: { $nin: ['cancelled', 'returned'] },
-  })
-    .sort({ updatedAt: 1 })
-    .limit(batchSize)
+  const [pending, uncaptured] = await Promise.all([
+    Order.find({
+      paymentMethod: 'online',
+      paymentStatus: 'pending',
+      status: { $nin: ['cancelled', 'returned'] },
+    })
+      .sort({ updatedAt: 1 })
+      .limit(batchSize),
+    tabbyConfigured
+      ? Order.find({
+        paymentMethod: 'online',
+        paymentProvider: 'tabby',
+        paymentStatus: 'paid',
+        status: { $nin: ['cancelled', 'returned'] },
+        tabbyPaymentId: { $ne: null },
+        tabbyCaptureStatus: { $ne: 'captured' },
+        tabbyCaptureAttempts: { $lt: MAX_TABBY_CAPTURE_ATTEMPTS },
+      })
+        .sort({ updatedAt: 1 })
+        .limit(batchSize)
+      : [],
+  ])
+  const candidates = [...pending, ...uncaptured]
 
   const stats = {
     scanned: candidates.length,

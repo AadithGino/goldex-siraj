@@ -68,6 +68,7 @@ const schema = z.object({
   TABBY_SECRET_KEY: z.string().optional(),
   TABBY_MERCHANT_CODE: z.string().optional(),
   TABBY_WEBHOOK_SECRET: z.string().optional(),
+  TABBY_WEBHOOK_HEADER_NAME: z.string().optional(),
   ONLINE_PAYMENT_PROVIDER: z.enum(['auto', 'paymob', 'tabby']).default('auto'),
   PAYMENT_RECONCILIATION_ENABLED: envBoolean.default(true),
   PAYMENT_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(900).default(45),
@@ -193,6 +194,7 @@ export const config = Object.freeze({
     secretKey: firstNonEmpty(env.TABBY_SECRET_KEY),
     merchantCode: firstNonEmpty(env.TABBY_MERCHANT_CODE),
     webhookSecret: firstNonEmpty(env.TABBY_WEBHOOK_SECRET),
+    webhookHeaderName: firstNonEmpty(env.TABBY_WEBHOOK_HEADER_NAME) || 'X-Goldex-Tabby-Auth',
   },
   onlinePaymentProvider: env.ONLINE_PAYMENT_PROVIDER,
   paymentReconciliation: {

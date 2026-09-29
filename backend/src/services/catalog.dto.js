@@ -41,7 +41,7 @@ const ALLOW = {
   ]),
   certificates: new Set(['productId', 'variantId', 'certNumber', 'authority', 'fileUrl', 'metadata', 'issuedDate']),
   banners: new Set([
-    'position', 'title', 'titleAr', 'subtitle', 'subtitleAr', 'eyebrow', 'eyebrowAr',
+    'position', 'occasionKey', 'title', 'titleAr', 'subtitle', 'subtitleAr', 'eyebrow', 'eyebrowAr',
     'imageUrl', 'imageUrlAr', 'mobileImageUrl', 'mobileImageUrlAr', 'ctaText', 'ctaTextAr',
     'ctaLink', 'displayOrder', 'isActive', 'startsAt', 'endsAt',
   ]),
@@ -184,6 +184,13 @@ export function toCatalogWriteDto(resource, payload, { partial = false } = {}) {
       if (!/^https?:\/\//i.test(dto.imageUrl) && !dto.imageUrl.startsWith('/uploads/') && !dto.imageUrl.startsWith('/media/')) {
         throw new AppError(422, 'VALIDATION_ERROR', 'image_url must be a public URL')
       }
+    }
+    if (dto.position && dto.position !== 'occasion') {
+      dto.occasionKey = null
+    }
+    const singleImageSlot = ['occasion', 'custom_jewellery', 'sell_jewellery'].includes(dto.position)
+    if (singleImageSlot && dto.imageUrl && !dto.mobileImageUrl) {
+      dto.mobileImageUrl = dto.imageUrl
     }
   }
 

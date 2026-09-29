@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { formatINR } from '@/lib/pricing'
 import { usePriceBreakup } from '@/hooks/usePriceBreakup'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ProductPaymentOptions } from '@/components/product/ProductPaymentOptions'
 
 export function ProductPriceSummary({ variantId }) {
   const { t } = useTranslation('product')
@@ -40,6 +41,7 @@ export function ProductPriceSummary({ variantId }) {
           {` · ${t('includesVatNote')}`}
         </p>
       )}
+      <ProductPaymentOptions price={breakup.display_total ?? breakup.total} />
     </div>
   )
 }

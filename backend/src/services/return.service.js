@@ -12,6 +12,7 @@ import {
   findOrderItem,
   remainingReturnableQty,
 } from './refund.service.js'
+import { refundOrderViaTabby } from './tabby.payment.service.js'
 import { claimReturnProofsInSession } from './upload.service.js'
 import * as walletService from './wallet.service.js'
 
@@ -365,31 +366,53 @@ export async function resolveReturn(id, input, staffId) {
       }
 
       if (plan.refundAmount > 0) {
-        await walletService.credit({
-          customerId: order.customerId,
+        const { tabbyAmount } = await refundOrderViaTabby(order, {
           amount: plan.refundAmount,
-          type: 'refund',
-          referenceType: 'return',
-          referenceId: locked.id,
-          idempotencyKey: `return-refund:${locked.id}`,
-          note: `Wallet refund for ${order.orderNumber}`,
-          createdBy: staffId,
-        }, { session })
-        await PaymentEvent.create([{
-          orderId: order.id,
-          provider: 'wallet',
-          eventType: 'order_return_refund',
-          transactionId: `return-refund:${locked.id}`,
-          amount: plan.refundAmount,
-          currency: 'AED',
-          verified: true,
-          payload: {
-            return_request_id: locked.id,
-            order_item_id: locked.orderItemId || null,
-            requested_qty: locked.requestedQty,
-          },
-          processedAt: new Date(),
-        }], { session })
+          referenceId: `refund-return-${locked.id}`,
+          reason: input.resolution_note || locked.reason || 'Return completed',
+        })
+        const walletAmount = roundMoney(plan.refundAmount - tabbyAmount)
+        const eventPayload = {
+          return_request_id: locked.id,
+          order_item_id: locked.orderItemId || null,
+          requested_qty: locked.requestedQty,
+        }
+        if (tabbyAmount > 0) {
+          await PaymentEvent.create([{
+            orderId: order.id,
+            provider: 'tabby',
+            eventType: 'order_return_refund',
+            transactionId: `tabby-return-refund:${locked.id}`,
+            amount: tabbyAmount,
+            currency: 'AED',
+            verified: true,
+            payload: { ...eventPayload, tabby_payment_id: order.tabbyPaymentId },
+            processedAt: new Date(),
+          }], { session })
+        }
+        if (walletAmount > 0) {
+          await walletService.credit({
+            customerId: order.customerId,
+            amount: walletAmount,
+            type: 'refund',
+            referenceType: 'return',
+            referenceId: locked.id,
+            idempotencyKey: `return-refund:${locked.id}`,
+            note: `Wallet refund for ${order.orderNumber}`,
+            createdBy: staffId,
+          }, { session })
+          await PaymentEvent.create([{
+            orderId: order.id,
+            provider: 'wallet',
+            eventType: 'order_return_refund',
+            transactionId: `return-refund:${locked.id}`,
+            amount: walletAmount,
+            currency: 'AED',
+            verified: true,
+            payload: eventPayload,
+            processedAt: new Date(),
+          }], { session })
+        }
         order.refundedTotal = roundMoney(Number(order.refundedTotal || 0) + plan.refundAmount)
       }
 

@@ -18,13 +18,15 @@ import {
 } from '@/components/ui/select'
 import { BannerImageField } from '@/components/admin/banners/BannerImageField'
 import { useAdminBannerMutations } from '@/hooks/useAdminBanners'
-import { getBannerSpec, BANNER_SPECS, BANNER_POSITIONS, formatBannerSize } from '@/lib/bannerSpecs'
+import { getBannerSpec, BANNER_SPECS, BANNER_POSITIONS, formatBannerSize, isSingleImageBannerPosition } from '@/lib/bannerSpecs'
 import { BannerPayloadError, bannerDateToInput, toBannerPayload } from '@/lib/bannerPayload'
 import { toFormState } from '@/lib/formUtils'
 import { LocaleSection } from '@/components/admin/shared/LocaleFieldTabs'
+import { OCCASIONS } from '@/lib/constants'
 
 const DEFAULT = {
   position: 'hero',
+  occasion_key: '',
   title: '',
   title_ar: '',
   image_url: '',
@@ -55,6 +57,8 @@ export function BannerFormDialog({ open, onOpenChange, banner }) {
   const [form, setForm] = useState(bannerToForm(banner))
   const isEdit = !!banner?.id
   const spec = getBannerSpec(form.position)
+  const isOccasion = form.position === 'occasion'
+  const isSingleImage = isSingleImageBannerPosition(form.position)
 
   useEffect(() => {
     if (open) setForm(bannerToForm(banner))
@@ -69,6 +73,7 @@ export function BannerFormDialog({ open, onOpenChange, banner }) {
     try {
       payload = toBannerPayload({
         position: form.position,
+        occasion_key: form.occasion_key || null,
         title: form.title,
         title_ar: form.title_ar,
         subtitle: null,
@@ -112,13 +117,24 @@ export function BannerFormDialog({ open, onOpenChange, banner }) {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-5">
           <p className="rounded-xl bg-ivory-3 px-3 py-2 text-xs leading-relaxed text-muted">
-            Upload horizontal banner images only. Mobile banners are also wide images optimized
-            for phone screens — do not upload 9:16 poster creatives.
+            {isOccasion
+              ? 'Upload one image per occasion for the home “Shop by Occasion” section. Same aspect on mobile and desktop.'
+              : isSingleImage
+                ? 'Upload one portrait image for this home section (fills half the block on desktop). Optional separate mobile crop.'
+                : 'Upload horizontal banner images only. Mobile banners are also wide images optimized for phone screens — do not upload 9:16 poster creatives.'}
           </p>
 
           <div>
             <label className="mb-2 block text-sm font-medium text-navy">Position</label>
-            <Select value={form.position} onValueChange={(v) => updateField('position', v)}>
+            <Select
+              value={form.position}
+              onValueChange={(v) => {
+                updateField('position', v)
+                if (v === 'occasion' && form.occasion_key) {
+                  updateField('cta_link', `/search?occasion=${form.occasion_key}`)
+                }
+              }}
+            >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {POSITIONS.map((p) => (
@@ -137,6 +153,33 @@ export function BannerFormDialog({ open, onOpenChange, banner }) {
             </p>
           </div>
 
+          {isOccasion && (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-navy">Occasion *</label>
+              <Select
+                value={form.occasion_key || ''}
+                onValueChange={(v) => {
+                  updateField('occasion_key', v)
+                  if (!form.cta_link || form.cta_link.startsWith('/search?occasion=')) {
+                    updateField('cta_link', `/search?occasion=${v}`)
+                  }
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select occasion" /></SelectTrigger>
+                <SelectContent>
+                  {OCCASIONS.map((o) => (
+                    <SelectItem key={o.key} value={o.key}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted">
+                One active banner per occasion key; home shows the first three occasions with optional custom art.
+              </p>
+            </div>
+          )}
+
           <LocaleSection title="English creative">
             <div>
               <label className="mb-2 block text-sm font-medium text-navy">Admin label *</label>
@@ -148,21 +191,23 @@ export function BannerFormDialog({ open, onOpenChange, banner }) {
               />
             </div>
             <BannerImageField
-              label="Desktop image *"
+              label={isSingleImage ? 'Panel image *' : 'Desktop image *'}
               spec={spec.desktop}
               aspectClass={spec.desktopAspect}
               value={form.image_url}
               onChange={(url) => updateField('image_url', url)}
               uploadFolder={`${form.position}/desktop/en`}
             />
-            <BannerImageField
-              label="Mobile wide image *"
-              spec={spec.mobile}
-              aspectClass={spec.mobileAspect}
-              value={form.mobile_image_url}
-              onChange={(url) => updateField('mobile_image_url', url)}
-              uploadFolder={`${form.position}/mobile/en`}
-            />
+            {!isSingleImage && (
+              <BannerImageField
+                label="Mobile wide image *"
+                spec={spec.mobile}
+                aspectClass={spec.mobileAspect}
+                value={form.mobile_image_url}
+                onChange={(url) => updateField('mobile_image_url', url)}
+                uploadFolder={`${form.position}/mobile/en`}
+              />
+            )}
           </LocaleSection>
 
           <LocaleSection title="Arabic creative (optional)">
@@ -177,21 +222,23 @@ export function BannerFormDialog({ open, onOpenChange, banner }) {
               />
             </div>
             <BannerImageField
-              label="Desktop image (Arabic)"
+              label={isSingleImage ? 'Panel image (Arabic)' : 'Desktop image (Arabic)'}
               spec={spec.desktop}
               aspectClass={spec.desktopAspect}
               value={form.image_url_ar}
               onChange={(url) => updateField('image_url_ar', url)}
               uploadFolder={`${form.position}/desktop/ar`}
             />
-            <BannerImageField
-              label="Mobile wide image (Arabic)"
-              spec={spec.mobile}
-              aspectClass={spec.mobileAspect}
-              value={form.mobile_image_url_ar}
-              onChange={(url) => updateField('mobile_image_url_ar', url)}
-              uploadFolder={`${form.position}/mobile/ar`}
-            />
+            {!isSingleImage && (
+              <BannerImageField
+                label="Mobile wide image (Arabic)"
+                spec={spec.mobile}
+                aspectClass={spec.mobileAspect}
+                value={form.mobile_image_url_ar}
+                onChange={(url) => updateField('mobile_image_url_ar', url)}
+                uploadFolder={`${form.position}/mobile/ar`}
+              />
+            )}
           </LocaleSection>
 
           <div>

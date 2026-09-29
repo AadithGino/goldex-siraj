@@ -7,6 +7,7 @@ import { usePriceBreakup } from '@/hooks/usePriceBreakup'
 import { pickField } from '@/lib/contentLocale'
 import { formatINR } from '@/lib/pricing'
 import { AddToBagButton } from '@/components/product/AddToBagButton'
+import { ProductPaymentOptions } from '@/components/product/ProductPaymentOptions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CertificateBadges } from '@/components/product/CertificateBadges'
@@ -62,7 +63,15 @@ function QuickViewBody({ product }) {
         {isLoading ? (
           <Skeleton className="h-8 w-32" />
         ) : breakup ? (
-          <p className="font-display text-2xl text-gold">{formatINR(breakup.display_total ?? breakup.total)}</p>
+          <>
+            <p className="font-display text-2xl text-gold">{formatINR(breakup.display_total ?? breakup.total)}</p>
+            <ProductPaymentOptions
+              price={breakup.display_total ?? breakup.total}
+              layout="compact"
+              tabbySource="product"
+              className="mt-3"
+            />
+          </>
         ) : (
           <p className="text-sm text-muted">{t('product:priceUnavailable')}</p>
         )}

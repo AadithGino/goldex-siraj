@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Banknote, CreditCard, Wallet, Info, ShieldCheck } from 'lucide-react'
 import { formatAED } from '@/lib/pricing'
 import { Button } from '@/components/ui/button'
 import { GiftOptions } from '@/components/checkout/GiftOptions'
+import { TabbyCardSnippet } from '@/components/payments/TabbySnippet'
 import { useWalletBalance } from '@/hooks/useWallet'
+import { useTabbyEligibility } from '@/hooks/useTabby'
 import { cn } from '@/lib/utils'
+import { getContentLang } from '@/lib/contentLocale'
+import { tabbyUnavailableMessage } from '@/lib/tabby'
 import { useStoreSettings } from '@/hooks/useStoreSettings'
 import { PolicyLinks } from '@/components/legal/PolicyLinks'
 
 export function PaymentConfirm({
   total,
+  addressId,
+  tabbyRejectionReason = null,
   onConfirm,
   isPlacing,
   isGift,
@@ -18,7 +25,8 @@ export function PaymentConfirm({
   onIsGiftChange,
   onGiftNoteChange,
 }) {
-  const { t } = useTranslation(['checkout', 'common'])
+  const { t, i18n } = useTranslation(['checkout', 'common'])
+  const lang = getContentLang(i18n.language)
   const { data: walletBalance = 0 } = useWalletBalance()
   const { data: settings } = useStoreSettings()
   const [method, setMethod] = useState('cod')
@@ -37,6 +45,16 @@ export function PaymentConfirm({
   const paymobEnabled = settings?.paymob_configured === true
   const tabbyEnabled = settings?.tabby_configured === true
 
+  const eligibility = useTabbyEligibility({
+    amount: due,
+    addressId,
+    lang,
+    enabled: onlineEnabled && tabbyEnabled,
+  })
+  const tabbyUnavailableReason = tabbyRejectionReason
+    || (eligibility.data && eligibility.data.available === false ? eligibility.data.reason || 'not_available' : null)
+  const tabbyChecking = onlineEnabled && tabbyEnabled && eligibility.isLoading
+
   const methods = useMemo(() => {
     const rows = [
       {
@@ -48,9 +66,15 @@ export function PaymentConfirm({
       },
       {
         id: 'online_tabby',
-        label: 'Tabby',
-        icon: ShieldCheck,
-        note: 'Split your purchase with Tabby. Total is locked when you place the order.',
+        label: t('checkout:tabby.methodName'),
+        logo: '/payments/tabby.png',
+        logoAlt: t('checkout:tabby.logoAlt'),
+        note: tabbyChecking
+          ? t('checkout:tabby.checking')
+          : tabbyUnavailableReason
+            ? tabbyUnavailableMessage(tabbyUnavailableReason, t)
+            : null,
+        unavailable: Boolean(tabbyUnavailableReason),
         enabled: onlineEnabled && tabbyEnabled,
       },
       {
@@ -69,8 +93,8 @@ export function PaymentConfirm({
       },
     ]
     return rows.filter((row) => row.enabled)
-  }, [bankEnabled, codEnabled, onlineEnabled, paymobEnabled, tabbyEnabled, t])
-  const availableMethods = methods
+  }, [bankEnabled, codEnabled, onlineEnabled, paymobEnabled, tabbyEnabled, tabbyChecking, tabbyUnavailableReason, t])
+  const availableMethods = useMemo(() => methods.filter((row) => !row.unavailable), [methods])
   const allDisabled = availableMethods.length === 0
 
   useEffect(() => {
@@ -84,6 +108,8 @@ export function PaymentConfirm({
     }
   }, [availableMethods, method, allDisabled])
 
+  const isTabby = method === 'online_tabby'
+
   const codMin = Number(settings?.cod_min_order_amount ?? 0)
   const codMax =
     settings?.cod_max_order_amount == null ? null : Number(settings.cod_max_order_amount)
@@ -91,8 +117,9 @@ export function PaymentConfirm({
   const codAboveMax = method === 'cod' && codMax != null && Number(total || 0) > codMax
 
   const handleConfirm = () => {
-    if (allDisabled) return
+    if (allDisabled || (isTabby && tabbyUnavailableReason)) return
     onConfirm({
+      lang,
       paymentMethod: method.startsWith('online_') ? 'online' : method,
       paymentProvider: method === 'online_tabby' ? 'tabby' : method === 'online_paymob' ? 'paymob' : null,
       paymentMode: method === 'cod' ? 'cash' : method.startsWith('online_') ? 'card' : 'bank_transfer',
@@ -112,27 +139,45 @@ export function PaymentConfirm({
       />
 
       <div className="grid gap-2 sm:grid-cols-2">
-        {availableMethods.map((m) => {
+        {methods.map((m) => {
           const Icon = m.icon
-          const active = method === m.id
+          const active = method === m.id && !m.unavailable
           return (
             <button
               key={m.id}
               type="button"
-              onClick={() => setMethod(m.id)}
+              disabled={m.unavailable}
+              aria-disabled={m.unavailable}
+              onClick={() => !m.unavailable && setMethod(m.id)}
               className={cn(
-                'rounded-lg border p-3 text-left transition-colors',
-                active ? 'border-navy bg-ivory-3 ring-1 ring-navy/10' : 'border-line bg-white hover:border-navy/30'
+                'rounded-lg border p-3 text-start transition-colors',
+                m.unavailable
+                  ? 'cursor-not-allowed border-line bg-white opacity-70'
+                  : active ? 'border-navy bg-ivory-3 ring-1 ring-navy/10' : 'border-line bg-white hover:border-navy/30'
               )}
             >
               <span className="flex items-center gap-2 text-sm font-semibold text-navy">
-                <Icon className="h-4 w-4 shrink-0" /> {m.label}
+                {m.logo
+                  ? <img src={m.logo} alt={m.logoAlt} className="h-5 w-auto shrink-0" />
+                  : <Icon className="h-4 w-4 shrink-0" />}
+                {m.label}
+                {m.unavailable && (
+                  <span className="ms-auto text-[10px] font-medium uppercase text-muted">{t('checkout:tabby.unavailable')}</span>
+                )}
               </span>
-              <span className="mt-1 block text-[11px] text-muted">{m.note}</span>
+              {m.note && (
+                <span className={cn('mt-1 block text-[11px]', m.unavailable ? 'text-destructive' : 'text-muted')}>{m.note}</span>
+              )}
             </button>
           )
         })}
       </div>
+
+      {tabbyUnavailableReason === 'email_required' && (
+        <Link to="/account" className="inline-block text-xs font-semibold text-gold hover:underline">
+          {t('checkout:tabby.goToProfile')}
+        </Link>
+      )}
 
       {allDisabled && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -154,12 +199,17 @@ export function PaymentConfirm({
         </div>
       )}
 
-      {(method === 'online_tabby' || method === 'online_paymob') && (
+      {isTabby && (
+        <div className="space-y-2 rounded-lg border border-line bg-white p-3">
+          <TabbyCardSnippet price={due} />
+          <p className="text-xs leading-relaxed text-muted">{t('checkout:tabby.redirectNote')}</p>
+        </div>
+      )}
+
+      {method === 'online_paymob' && (
         <div className="rounded-lg border border-line bg-white p-3">
           <p className="text-xs leading-relaxed text-muted">
-            {method === 'online_tabby'
-              ? 'You will be redirected to Tabby checkout. Payment confirmation is handled automatically once Tabby verifies the transaction.'
-              : 'You will be redirected to Paymob secure checkout to pay by card. Payment confirmation is handled automatically once Paymob verifies the transaction.'}
+            You will be redirected to Paymob secure checkout to pay by card. Payment confirmation is handled automatically once Paymob verifies the transaction.
           </p>
         </div>
       )}
@@ -185,7 +235,7 @@ export function PaymentConfirm({
       <div className="rounded-lg border border-line bg-white p-3">
         <div className="space-y-1.5 text-sm">
           <div className="flex justify-between text-muted">
-            <span>{method === 'cod' ? t('checkout:estimatedTotal') : 'Order total (locked at placement)'}</span>
+            <span>{method === 'cod' ? t('checkout:estimatedTotal') : t('checkout:lockedOrderTotal')}</span>
             <span className="text-navy">{formatAED(total)}</span>
           </div>
           {walletApplied > 0 && (
@@ -198,9 +248,11 @@ export function PaymentConfirm({
             <span>
               {method === 'cod'
                 ? t('checkout:payOnDelivery')
-                : method.startsWith('online_')
-                  ? 'Card payment due'
-                  : 'Bank transfer due (locked)'}
+                : isTabby
+                  ? t('checkout:tabby.totalDue')
+                  : method.startsWith('online_')
+                    ? 'Card payment due'
+                    : 'Bank transfer due (locked)'}
             </span>
             <span>{formatAED(due)}</span>
           </div>
@@ -210,8 +262,8 @@ export function PaymentConfirm({
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-navy" />
           {method === 'cod'
             ? 'This COD total is an estimate. The final amount is recalculated using the live gold rate only when the package is physically handed to you.'
-            : method === 'online_tabby'
-              ? 'This Tabby total is locked when you place the order. You will complete payment on Tabby before the order is confirmed.'
+            : isTabby
+              ? t('checkout:tabby.infoNote')
               : method === 'online_paymob'
                 ? 'This card total is locked when you place the order. You will complete payment on Paymob before the order is confirmed.'
               : 'This bank/card total is locked when you place the order. It is not live-repriced when payment is verified.'}
@@ -227,7 +279,7 @@ export function PaymentConfirm({
           className="mt-3 w-full"
           size="sm"
           onClick={handleConfirm}
-          disabled={isPlacing || allDisabled || codBelowMin || codAboveMax}
+          disabled={isPlacing || allDisabled || codBelowMin || codAboveMax || tabbyChecking || (isTabby && Boolean(tabbyUnavailableReason))}
         >
           {allDisabled
             ? 'Payment unavailable'
@@ -235,8 +287,8 @@ export function PaymentConfirm({
               ? t('common:placingOrder')
               : method === 'cod'
                 ? t('checkout:placeOrderCod', { amount: formatAED(due) })
-                : method === 'online_tabby'
-                  ? `Pay ${formatAED(due)} with Tabby`
+                : isTabby
+                  ? t('checkout:tabby.payButton', { amount: formatAED(due) })
                   : method === 'online_paymob'
                   ? `Pay ${formatAED(due)} with card`
                   : `Place bank-transfer order · ${formatAED(due)}`}

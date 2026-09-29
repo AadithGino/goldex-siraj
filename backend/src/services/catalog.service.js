@@ -84,7 +84,7 @@ export async function list(resource, query = {}, admin = false) {
       ]
     }
   } else {
-    for (const key of ['categoryId', 'brandId', 'productId', 'variantId', 'position', 'slug', 'status', 'isFeatured', 'isPublished']) {
+    for (const key of ['categoryId', 'brandId', 'productId', 'variantId', 'position', 'occasionKey', 'slug', 'status', 'isFeatured', 'isPublished']) {
       if (mapped[key] !== undefined && mapped[key] !== '' && mapped[key] !== 'all') filter[key] = mapped[key]
     }
   }
@@ -835,6 +835,8 @@ export async function publicBootstrap() {
     payments: {
       paymob_configured: paymob.isConfigured,
       tabby_configured: tabby.isConfigured,
+      tabby_public_key: tabby.isConfigured ? tabby.publicKey || null : null,
+      tabby_merchant_code: tabby.isConfigured ? tabby.merchantCode : null,
       online_checkout_provider: onlineProvider,
       online_checkout_enabled: Boolean(settings?.onlinePaymentEnabled) && onlineConfigured,
     },

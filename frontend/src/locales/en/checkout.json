@@ -58,6 +58,28 @@
   "codBullet2": "Insured shipping with tamper-proof packaging",
   "codBullet3": "Final amount based on live gold rates at checkout",
   "placeCodOrder": "Place COD Order — {{amount}}",
+  "lockedOrderTotal": "Order total (locked at placement)",
+  "tabby": {
+    "methodName": "Pay later with Tabby",
+    "logoAlt": "Tabby",
+    "checking": "Checking Tabby availability…",
+    "unavailable": "Unavailable",
+    "redirectNote": "You will be redirected to Tabby to complete your purchase. Your order is confirmed once Tabby approves the payment.",
+    "totalDue": "Total with Tabby",
+    "infoNote": "This total is locked when you place the order. The same price applies to every payment method.",
+    "payButton": "Pay {{amount}} with Tabby",
+    "redirecting": "Redirecting to Tabby…",
+    "cancelled": "You aborted the payment. Please retry or choose another payment method.",
+    "failed": "Sorry, Tabby is unable to approve this purchase. Please use an alternative payment method for your order.",
+    "emailRequired": "Add an email address to your profile to pay with Tabby.",
+    "phoneRequired": "Add a mobile number to your delivery address to pay with Tabby.",
+    "goToProfile": "Update profile",
+    "rejected": {
+      "not_available": "Sorry, Tabby is unable to approve this purchase. Please use an alternative payment method for your order.",
+      "order_amount_too_high": "This purchase is above your current spending limit with Tabby, try a smaller cart or use another payment method",
+      "order_amount_too_low": "The purchase amount is below the minimum amount required to use Tabby, try adding more items or use another payment method"
+    }
+  },
   "address": {
     "label": "Label",
     "emirate": "Emirate",

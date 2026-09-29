@@ -30,8 +30,10 @@ export function usePaymobCheckout() {
       const paymentProvider = typeof orderIdOrPayload === 'object'
         ? orderIdOrPayload?.paymentProvider
         : null
+      const lang = typeof orderIdOrPayload === 'object' ? orderIdOrPayload?.lang : null
       return api.post(`/customer/orders/${orderId}/online-checkout`, {
         ...(paymentProvider ? { payment_provider: paymentProvider } : {}),
+        ...(lang ? { lang } : {}),
       })
     },
   })
@@ -40,10 +42,11 @@ export function usePaymobCheckout() {
 export function useChangeOrderPayment() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ orderId, paymentMethod, paymentProvider = null }) => {
+    mutationFn: async ({ orderId, paymentMethod, paymentProvider = null, lang = null }) => {
       const order = await api.post(`/customer/orders/${orderId}/payment-method`, {
         payment_method: paymentMethod,
         ...(paymentProvider ? { payment_provider: paymentProvider } : {}),
+        ...(lang ? { lang } : {}),
       })
       return {
         ...adaptOrder(order),
@@ -67,15 +70,19 @@ export function usePaymobConfirm() {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
       queryClient.invalidateQueries({ queryKey: ['order'] })
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['cart'] })
+    },
   })
 }
 
 export function usePlaceOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ addressId, couponCode, paymentMethod = 'cod', paymentProvider = null, walletApply = 0, isGift = false, giftNote = null, idempotencyKey }) =>
+    mutationFn: ({ addressId, couponCode, paymentMethod = 'cod', paymentProvider = null, walletApply = 0, isGift = false, giftNote = null, idempotencyKey, lang }) =>
       api.post('/customer/orders', {
         address_id: addressId,
+        lang: lang || undefined,
         coupon_code: couponCode || null,
         payment_method: paymentMethod,
         payment_provider: paymentProvider || undefined,

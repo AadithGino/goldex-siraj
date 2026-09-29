@@ -17,14 +17,10 @@ import { createPaymobIntention, buildPaymobSpecialReference, getPaymobConfig, in
 import {
   buildTabbyReference,
   createTabbyCheckout,
-  extractTabbyPaymentData,
-  getTabbyCheckout,
   getTabbyConfig,
-  getTabbyPayment,
-  isTabbyPendingStatus,
-  isTabbySuccessStatus,
-  resolveGoldexOrderIdFromTabbyReference,
+  runTabbyPrescoring,
 } from './tabby.service.js'
+import { abandonTabbyOrder, finalizeTabbyPayment, refundOrderViaTabby } from './tabby.payment.service.js'
 import { logger } from '../config/logger.js'
 
 function escapeRegex(value) {
@@ -239,6 +235,39 @@ function isRetriableDuplicateRace(error) {
   return error?.code === 11000 || error?.cause?.code === 11000
 }
 
+/** Unpaid checkout-originated Tabby attempts still hold stock/wallet/coupon; release them before a new attempt. */
+async function releaseAbandonedTabbyOrders(customerId) {
+  const stale = await Order.find({
+    customerId,
+    paymentMethod: 'online',
+    paymentProvider: 'tabby',
+    paymentStatus: 'pending',
+    tabbyCartRetained: true,
+    status: 'placed',
+  }).select('_id').lean()
+  for (const row of stale) {
+    try {
+      await abandonTabbyOrder(customerId, row._id)
+    } catch (error) {
+      logger.warn({ err: error, orderId: String(row._id) }, 'Could not release previous Tabby attempt')
+    }
+  }
+}
+
+export async function checkTabbyEligibility(customerId, input = {}) {
+  const [customer, address] = await Promise.all([
+    Customer.findById(customerId),
+    input.address_id ? Address.findOne({ _id: input.address_id, customerId }) : null,
+  ])
+  if (!customer) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'Customer not found')
+  return runTabbyPrescoring({
+    amount: input.amount,
+    customer,
+    address: address?.toObject?.() || null,
+    lang: input.lang,
+  })
+}
+
 export async function placeOrder(customerId, input) {
   const idempotencyKey = String(input.idempotency_key || '').trim()
   if (!idempotencyKey) throw new AppError(422, 'IDEMPOTENCY_REQUIRED', 'Idempotency key is required')
@@ -266,6 +295,8 @@ export async function placeOrder(customerId, input) {
       throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
     }
   }
+
+  await releaseAbandonedTabbyOrders(customerId)
 
   const maxAttempts = 5
   let lastError
@@ -364,19 +395,21 @@ export async function placeOrder(customerId, input) {
             discountAmount: couponResult.discount_amount,
           }, { session })
         }
-        await CartItem.deleteMany({ customerId }, { session })
+        const provider = paymentMethod === 'online' ? resolveOnlineProvider(requestedOnlineProvider) : null
+        if (paymentMethod === 'online' && !provider) {
+          throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
+        }
+        // Tabby keeps the bag until payment is confirmed so a cancel/failure returns to a full bag.
+        if (provider !== 'tabby') await CartItem.deleteMany({ customerId }, { session })
         if (paymentMethod === 'online') {
           const customer = await Customer.findById(customerId).session(session)
-          const provider = resolveOnlineProvider(requestedOnlineProvider)
-          if (!provider) {
-            throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
-          }
           if (provider === 'tabby') {
             const reference = buildTabbyReference(order.id)
-            const tabby = await createTabbyCheckout({ order, customer, reference })
+            const tabby = await createTabbyCheckout({ order, customer, reference, lang: input.lang, returnTo: 'checkout', session })
             order.tabbyCheckoutId = tabby.checkoutId
             order.tabbyPaymentId = tabby.paymentId
             order.tabbyReference = tabby.reference
+            order.tabbyCartRetained = true
             order.paymentProvider = 'tabby'
             await order.save({ session })
             order.checkoutUrl = tabby.checkoutUrl
@@ -716,33 +749,61 @@ export async function cancelOrder(orderId, staffId, note, { session: externalSes
     // Unpaid orders: release only the wallet reservation.
     const refundAmount = wasPaid ? paidTotal : walletReserved
     if (refundAmount > 0) {
-      await walletService.credit({
-        customerId: order.customerId,
-        amount: refundAmount,
-        type: 'refund',
-        referenceType: 'order',
-        referenceId: order.id,
-        idempotencyKey: `cancel-refund:${order.id}`,
-        note: wasPaid ? 'Paid order cancellation refunded to wallet' : 'Wallet returned on cancellation',
-        createdBy: staffId,
-      }, { session })
-      await PaymentEvent.create([{
-        orderId: order.id,
-        provider: 'wallet',
-        eventType: 'order_cancel_refund',
-        transactionId: `cancel-refund:${order.id}`,
-        amount: refundAmount,
-        currency: 'AED',
-        verified: true,
-        payload: {
-          was_paid: wasPaid,
-          payment_method: order.paymentMethod,
-          payment_mode: order.paymentMode,
-          wallet_applied: walletReserved,
-          paid_total: paidTotal,
-        },
-        processedAt: new Date(),
-      }], { session })
+      let tabbyAmount = 0
+      let tabbyMethod = null
+      if (wasPaid && order.paymentProvider === 'tabby') {
+        const tabbyRefund = await refundOrderViaTabby(order, {
+          amount: refundAmount,
+          referenceId: `refund-cancel-${order.id}`,
+          reason: note || 'Order cancelled',
+          fullCancel: true,
+        })
+        tabbyAmount = tabbyRefund.tabbyAmount
+        tabbyMethod = tabbyRefund.method || null
+      }
+      const walletAmount = roundMoney(refundAmount - tabbyAmount)
+      if (tabbyAmount > 0) {
+        await PaymentEvent.create([{
+          orderId: order.id,
+          provider: 'tabby',
+          eventType: 'order_cancel_refund',
+          transactionId: `tabby-cancel-refund:${order.id}`,
+          amount: tabbyAmount,
+          currency: 'AED',
+          verified: true,
+          payload: { tabby_payment_id: order.tabbyPaymentId, method: tabbyMethod, paid_total: paidTotal },
+          processedAt: new Date(),
+        }], { session })
+      }
+      if (walletAmount > 0) {
+        await walletService.credit({
+          customerId: order.customerId,
+          amount: walletAmount,
+          type: 'refund',
+          referenceType: 'order',
+          referenceId: order.id,
+          idempotencyKey: `cancel-refund:${order.id}`,
+          note: wasPaid ? 'Paid order cancellation refunded to wallet' : 'Wallet returned on cancellation',
+          createdBy: staffId,
+        }, { session })
+        await PaymentEvent.create([{
+          orderId: order.id,
+          provider: 'wallet',
+          eventType: 'order_cancel_refund',
+          transactionId: `cancel-refund:${order.id}`,
+          amount: walletAmount,
+          currency: 'AED',
+          verified: true,
+          payload: {
+            was_paid: wasPaid,
+            payment_method: order.paymentMethod,
+            payment_mode: order.paymentMode,
+            wallet_applied: walletReserved,
+            paid_total: paidTotal,
+          },
+          processedAt: new Date(),
+        }], { session })
+      }
       order.refundedTotal = roundMoney(Number(order.refundedTotal || 0) + refundAmount)
     }
     await rollbackCouponRedemption({
@@ -872,7 +933,7 @@ export async function createPaymobCheckoutForOrder(customerId, orderId) {
   return { checkout_url: paymob.checkoutUrl }
 }
 
-export async function createTabbyCheckoutForOrder(customerId, orderId) {
+export async function createTabbyCheckoutForOrder(customerId, orderId, { lang } = {}) {
   const order = await Order.findOne({ _id: orderId, customerId })
   if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
   if (order.paymentMethod !== 'online') throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
@@ -881,7 +942,13 @@ export async function createTabbyCheckoutForOrder(customerId, orderId) {
 
   const customer = await Customer.findById(customerId)
   const reference = buildTabbyReference(order.id)
-  const tabby = await createTabbyCheckout({ order, customer, reference })
+  const tabby = await createTabbyCheckout({
+    order,
+    customer,
+    reference,
+    lang,
+    returnTo: order.tabbyCartRetained ? 'checkout' : 'order',
+  })
   order.tabbyCheckoutId = tabby.checkoutId
   order.tabbyPaymentId = tabby.paymentId
   order.tabbyReference = tabby.reference
@@ -890,7 +957,7 @@ export async function createTabbyCheckoutForOrder(customerId, orderId) {
   return { checkout_url: tabby.checkoutUrl }
 }
 
-export async function createOnlineCheckoutForOrder(customerId, orderId, requestedProvider = null) {
+export async function createOnlineCheckoutForOrder(customerId, orderId, requestedProvider = null, { lang } = {}) {
   const order = await Order.findOne({ _id: orderId, customerId })
   if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
   if (order.paymentStatus === 'paid') throw new AppError(409, 'ORDER_ALREADY_PAID', 'Order is already paid')
@@ -898,7 +965,7 @@ export async function createOnlineCheckoutForOrder(customerId, orderId, requeste
     throw new AppError(409, 'ORDER_CLOSED', 'Closed order cannot be paid')
   }
   const provider = resolveOnlineProvider(requestedProvider || order.paymentProvider)
-  if (provider === 'tabby') return createTabbyCheckoutForOrder(customerId, orderId)
+  if (provider === 'tabby') return createTabbyCheckoutForOrder(customerId, orderId, { lang })
   if (provider === 'paymob') return createPaymobCheckoutForOrder(customerId, orderId)
   throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', 'Online payment is not configured')
 }
@@ -960,6 +1027,13 @@ export async function changePendingPaymentMethod(customerId, orderId, input = {}
     throw new AppError(503, 'ONLINE_PAYMENT_NOT_CONFIGURED', `${requestedProvider} is not configured`)
   }
 
+  const previous = {
+    paymentMethod: order.paymentMethod,
+    paymentMode: order.paymentMode,
+    paymentStatus: order.paymentStatus,
+    pricingMode: order.pricingMode,
+    paymentProvider: order.paymentProvider,
+  }
   order.paymentMethod = 'online'
   order.paymentMode = 'card'
   order.paymentStatus = 'pending'
@@ -971,9 +1045,17 @@ export async function changePendingPaymentMethod(customerId, orderId, input = {}
   })
   await order.save()
 
-  const checkout = provider === 'tabby'
-    ? await createTabbyCheckoutForOrder(customerId, orderId)
-    : await createPaymobCheckoutForOrder(customerId, orderId)
+  let checkout
+  try {
+    checkout = provider === 'tabby'
+      ? await createTabbyCheckoutForOrder(customerId, orderId, { lang: input.lang })
+      : await createPaymobCheckoutForOrder(customerId, orderId)
+  } catch (error) {
+    if (error?.code === 'TABBY_REJECTED' || String(error?.code || '').startsWith('TABBY_')) {
+      await Order.updateOne({ _id: order._id }, { $set: previous, $pop: { statusHistory: 1 } })
+    }
+    throw error
+  }
   const fresh = await Order.findById(order.id)
   return { order: fresh, checkout_url: checkout.checkout_url }
 }
@@ -1060,7 +1142,7 @@ export async function confirmPaymobRedirectPayment(customerId, orderId, query = 
 export async function confirmTabbyRedirectPayment(customerId, orderId, query = {}) {
   const order = await Order.findOne({ _id: orderId, customerId })
   if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
-  if (order.paymentStatus === 'paid') return order
+  if (order.paymentStatus === 'paid' && order.tabbyCaptureStatus === 'captured') return order
   if (order.paymentMethod !== 'online') {
     throw new AppError(409, 'NOT_ONLINE_ORDER', 'This order is not an online payment order')
   }
@@ -1069,44 +1151,12 @@ export async function confirmTabbyRedirectPayment(customerId, orderId, query = {
   }
 
   const paymentId = query.payment_id || query.paymentId || order.tabbyPaymentId || null
-  const checkoutId = query.checkout_id || query.checkoutId || order.tabbyCheckoutId || null
-  const inquired = paymentId
-    ? await getTabbyPayment(paymentId)
-    : await getTabbyCheckout(checkoutId)
-
-  if (!inquired) {
-    throw new AppError(400, 'TABBY_CONFIRMATION_FAILED', 'Could not verify Tabby payment status')
+  const result = await finalizeTabbyPayment(order._id, { paymentId, source: 'redirect' })
+  if (result.outcome === 'paid') return result.order
+  if (result.outcome === 'pending') {
+    throw new AppError(409, 'PAYMENT_PENDING', 'Tabby payment is still being confirmed')
   }
-
-  const payment = extractTabbyPaymentData(inquired)
-  if (!payment.id) {
-    throw new AppError(422, 'TRANSACTION_REQUIRED', 'Missing Tabby transaction id')
-  }
-  if (isTabbyPendingStatus(payment.status)) {
-    throw new AppError(409, 'PAYMENT_PENDING', 'Tabby payment is still pending')
-  }
-  if (!isTabbySuccessStatus(payment.status)) {
-    throw new AppError(409, 'PAYMENT_NOT_SUCCESSFUL', 'Tabby payment was not successful')
-  }
-
-  const refOrderId = resolveGoldexOrderIdFromTabbyReference(payment.orderReference)
-  if (refOrderId && refOrderId !== String(order.id)) {
-    throw new AppError(409, 'ORDER_MISMATCH', 'Payment confirmation does not match this order')
-  }
-
-  if (!Number.isFinite(payment.amount) || payment.amount <= 0) {
-    throw new AppError(422, 'INVALID_AMOUNT', 'Missing payment amount')
-  }
-
-  order.tabbyPaymentId = payment.id
-  if (payment.checkoutId) order.tabbyCheckoutId = payment.checkoutId
-  await order.save()
-
-  return applyOnlinePaymentFromProvider(order.id, {
-    transactionId: String(payment.id),
-    amount: payment.amount,
-    payload: { provider: 'tabby', source: 'redirect', redirect: query, payment: inquired },
-  })
+  throw new AppError(409, 'PAYMENT_NOT_SUCCESSFUL', 'Tabby payment was not successful', { outcome: result.outcome })
 }
 
 export async function confirmOnlineRedirectPayment(customerId, orderId, query = {}) {

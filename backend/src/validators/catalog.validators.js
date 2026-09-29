@@ -353,8 +353,11 @@ const brandBody = z.object({
 }).strict().superRefine(rejectAliasConflicts(BRAND_ALIAS_PAIRS))
 
 const BANNER_POSITIONS = z.enum([
-  'hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom',
+  'hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom', 'occasion',
+  'custom_jewellery', 'sell_jewellery',
 ])
+
+const OCCASION_HOME_KEYS = z.enum(['bridal', 'daily', 'gift', 'festive', 'office'])
 
 /** Strict non-negative int — no silent coerce of empty/NaN strings. */
 const nonNegInt = z.number({ errorMap: () => ({ message: 'must be a finite non-negative integer' }) })
@@ -386,6 +389,7 @@ const CERT_ALIAS_PAIRS = [
 ]
 
 const BANNER_ALIAS_PAIRS = [
+  ['occasion_key', 'occasionKey'],
   ['title_ar', 'titleAr'],
   ['subtitle_ar', 'subtitleAr'],
   ['eyebrow_ar', 'eyebrowAr'],
@@ -440,6 +444,8 @@ const certificateBody = z.object({
 
 const bannerBody = z.object({
   position: BANNER_POSITIONS.optional(),
+  occasion_key: OCCASION_HOME_KEYS.nullable().optional(),
+  occasionKey: OCCASION_HOME_KEYS.nullable().optional(),
   title: z.string().trim().max(200).optional(),
   title_ar: z.string().trim().max(200).nullable().optional(),
   titleAr: z.string().trim().max(200).nullable().optional(),
@@ -524,10 +530,19 @@ const certificateCreateBody = certificateBody.superRefine((body, ctx) => {
 const bannerCreateBody = bannerBody.superRefine((body, ctx) => {
   if (!body.position) ctx.addIssue({ code: 'custom', message: 'position is required', path: ['position'] })
   if (!body.title) ctx.addIssue({ code: 'custom', message: 'title is required', path: ['title'] })
+  const occasionKey = body.occasion_key ?? body.occasionKey
+  if (body.position === 'occasion') {
+    if (!occasionKey) {
+      ctx.addIssue({ code: 'custom', message: 'occasion_key is required when position is occasion', path: ['occasion_key'] })
+    }
+  } else if (occasionKey) {
+    ctx.addIssue({ code: 'custom', message: 'occasion_key is only allowed when position is occasion', path: ['occasion_key'] })
+  }
   if (!(body.image_url || body.imageUrl)) {
     ctx.addIssue({ code: 'custom', message: 'image_url is required', path: ['image_url'] })
   }
-  if (!(body.mobile_image_url || body.mobileImageUrl)) {
+  const singleImageSlot = ['occasion', 'custom_jewellery', 'sell_jewellery'].includes(body.position)
+  if (!singleImageSlot && !(body.mobile_image_url || body.mobileImageUrl)) {
     ctx.addIssue({ code: 'custom', message: 'mobile_image_url is required', path: ['mobile_image_url'] })
   }
   const start = body.starts_at ?? body.startsAt

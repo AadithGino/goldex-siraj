@@ -54,3 +54,7 @@ uploads/
 .tmp/
 .temp/
 **/tmp/
+
+docs/tabby-qa/scripts/qa-auth.json
+docs/tabby-qa/screenshots/*.png
+docs/tabby-qa/tabby-qa-screenshots.zip

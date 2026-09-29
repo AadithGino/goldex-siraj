@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { RequireCustomer } from '@/components/auth/RequireCustomer'
 import { AddressSelect } from '@/components/checkout/AddressSelect'
 import { CheckoutFlowLayout } from '@/components/checkout/CheckoutFlowLayout'
@@ -13,16 +13,23 @@ import { useCart } from '@/hooks/useCart'
 import { useCartTotals } from '@/hooks/useCartTotals'
 import { useAddresses } from '@/hooks/useAddresses'
 import { usePlaceOrder } from '@/hooks/useOrders'
+import { useTabbyAbandon } from '@/hooks/useTabby'
 import { Button } from '@/components/ui/button'
 import { formatAED } from '@/lib/pricing'
+import { tabbyReasonFromError, tabbyUnavailableMessage } from '@/lib/tabby'
 import { cn } from '@/lib/utils'
 
 function CheckoutPageContent() {
   const { t } = useTranslation(['checkout', 'common', 'errors'])
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { items, isLoading: cartLoading } = useCart()
   const { addresses, create, isSaving, isLoading: addressesLoading } = useAddresses()
   const { mutateAsync: placeOrder, isPending: isPlacing } = usePlaceOrder()
+  const { mutateAsync: abandonTabbyOrder } = useTabbyAbandon()
+  const [tabbyNotice, setTabbyNotice] = useState(null)
+  const [tabbyRejectionReason, setTabbyRejectionReason] = useState(null)
+  const [returningFromTabby, setReturningFromTabby] = useState(false)
 
   const steps = useMemo(
     () => [
@@ -59,6 +66,34 @@ function CheckoutPageContent() {
   const activeAddressId =
     selectedAddressId || addresses.find((a) => a.is_default)?.id || addresses[0]?.id
 
+  // Tabby cancel/failure URLs land here with the bag intact; release the unpaid attempt.
+  useEffect(() => {
+    const outcome = searchParams.get('tabby')
+    const orderId = searchParams.get('order')
+    if (!outcome) return
+    setSearchParams({}, { replace: true })
+    if (outcome !== 'cancelled' && outcome !== 'failed') return
+    setTabbyNotice(outcome)
+    if (!orderId) return
+    setReturningFromTabby(true)
+    abandonTabbyOrder(orderId)
+      .then((result) => {
+        if (result?.outcome === 'paid') {
+          setLeavingForPayment(true)
+          navigate(`/orders/${orderId}`, { replace: true })
+        }
+      })
+      .catch(() => {})
+      .finally(() => setReturningFromTabby(false))
+  }, [])
+
+  const resumedFromTabbyRef = useRef(false)
+  useEffect(() => {
+    if (!tabbyNotice || !activeAddressId || resumedFromTabbyRef.current) return
+    resumedFromTabbyRef.current = true
+    setStep(2)
+  }, [tabbyNotice, activeAddressId])
+
   const handleSaveAddress = async (form) => {
     try {
       const saved = await create(form)
@@ -71,6 +106,7 @@ function CheckoutPageContent() {
   }
 
   const handlePlaceOrder = async ({
+    lang,
     paymentMethod,
     paymentProvider,
     paymentMode,
@@ -82,8 +118,10 @@ function CheckoutPageContent() {
       toast.error(t('errors:checkout.selectAddress'))
       return
     }
+    setTabbyNotice(null)
     try {
       const result = await placeOrder({
+        lang,
         addressId: activeAddressId,
         couponCode: appliedCoupon?.code,
         paymentMethod: paymentMethod || 'cod',
@@ -106,6 +144,13 @@ function CheckoutPageContent() {
         })
       }
 
+      if (paymentProvider === 'tabby' && result.checkout_url) {
+        setLeavingForPayment(true)
+        toast.message(t('checkout:tabby.redirecting'))
+        window.location.assign(result.checkout_url)
+        return
+      }
+
       toast.success((paymentMethod || 'cod') === 'manual'
         ? `Order ${result.order_number} placed. The store will contact you with bank-transfer instructions.`
         : paymentMethod === 'online'
@@ -122,6 +167,12 @@ function CheckoutPageContent() {
       navigate(`/orders/${result.order_id}`, { replace: true })
     } catch (err) {
       setLeavingForPayment(false)
+      const tabbyReason = paymentProvider === 'tabby' ? tabbyReasonFromError(err) : null
+      if (tabbyReason) {
+        setTabbyRejectionReason(tabbyReason)
+        toast.error(tabbyUnavailableMessage(tabbyReason, t))
+        return
+      }
       toast.error(err.message || t('errors:checkout.placeOrderFailed'))
     }
   }
@@ -164,6 +215,16 @@ function CheckoutPageContent() {
           </div>
         ))}
       </div>
+
+      {tabbyNotice && (
+        <div
+          role="alert"
+          className="mb-6 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{tabbyNotice === 'cancelled' ? t('checkout:tabby.cancelled') : t('checkout:tabby.failed')}</p>
+        </div>
+      )}
 
       <CheckoutFlowLayout
         sidebar={sidebar}
@@ -249,8 +310,10 @@ function CheckoutPageContent() {
                 ) : (
                   <PaymentConfirm
                     total={totals.total}
+                    addressId={activeAddressId}
+                    tabbyRejectionReason={tabbyRejectionReason}
                     onConfirm={handlePlaceOrder}
-                    isPlacing={isPlacing}
+                    isPlacing={isPlacing || returningFromTabby}
                     isGift={isGift}
                     giftNote={giftNote}
                     onIsGiftChange={setIsGift}

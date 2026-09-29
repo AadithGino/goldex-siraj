@@ -7,6 +7,10 @@ export const STORE_LEGAL_NAME_AR = 'ذا جولديكس للمجوهرات ش.ذ
 export const STORE_EMAIL = 'goldexdxb@gmail.com'
 export const STORE_COMPLIANCE_EMAIL = 'compliance@thegoldex.com'
 
+/** WhatsApp support (footer / click-to-chat). Digits only for wa.me links. */
+export const STORE_WHATSAPP_E164 = '971565084747'
+export const STORE_WHATSAPP_DISPLAY = '+971565084747'
+
 export function getStoreLegalName(lang) {
   return lang === 'ar' ? STORE_LEGAL_NAME_AR : STORE_LEGAL_NAME_EN
 }

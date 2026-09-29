@@ -1,7 +1,12 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { OCCASIONS } from '@/lib/constants'
 import { Skeleton } from '@/components/ui/skeleton'
+import { BannerPicture } from '@/components/banners/BannerPicture'
+import { useBanners } from '@/hooks/useBanners'
+import { pickBannerImages } from '@/lib/contentLocale'
+import { getContentLang } from '@/i18n'
 
 const OCCASION_FALLBACK_IMAGES = {
   bridal:
@@ -16,27 +21,35 @@ const OCCASION_FALLBACK_IMAGES = {
     'https://s7ap1.scene7.com/is/image/malabargroup/mgdsite/products/permanent/india/gold%20ornaments/nose%20pin/NP-320603/NPDZL40429-0001/NPDZL40429-0001-2.jpg?fmt=webp-alpha&wid=600&hei=500',
 }
 
-function OccasionCard({ occasion, products = [], isLoading = false }) {
-  const { t } = useTranslation(['home', 'common'])
+function OccasionCard({ occasion, products = [], banner, isLoading = false }) {
+  const { t, i18n } = useTranslation(['home', 'common'])
+  const lang = getContentLang(i18n.language)
   const occasionProducts = (products || []).filter((product) => {
     const tags = product?.occasion || product?.occasions || []
     return Array.isArray(tags) && tags.includes(occasion.key)
   })
   const preview = occasionProducts[0]
-  const image = preview?.primary_image || OCCASION_FALLBACK_IMAGES[occasion.key]
+  const adminImages = banner ? pickBannerImages(banner, lang) : null
+  const adminSrc = adminImages?.mobile || adminImages?.desktop
+  const fallbackImage = preview?.primary_image || OCCASION_FALLBACK_IMAGES[occasion.key]
+  const linkTo = banner?.cta_link || `/search?occasion=${occasion.key}`
 
   return (
     <Link
-      to={`/search?occasion=${occasion.key}`}
+      to={linkTo}
       className="group relative overflow-hidden rounded-[28px] border border-gold/20 bg-ivory-2 shadow-[0_14px_34px_rgba(7,21,37,.09)] transition-all hover:-translate-y-1 hover:border-gold/40"
     >
       {isLoading ? (
         <div className="flex h-44 items-center justify-center bg-ivory-3 sm:h-52">
           <Skeleton className="h-full w-full" />
         </div>
+      ) : banner && adminSrc ? (
+        <div className="h-44 sm:h-52">
+          <BannerPicture banner={banner} imgClassName="transition-transform group-hover:scale-105" />
+        </div>
       ) : (
         <img
-          src={image}
+          src={fallbackImage}
           alt={t(`common:occasion.${occasion.key}`)}
           className="h-44 w-full object-cover transition-transform group-hover:scale-105 sm:h-52"
         />
@@ -55,6 +68,18 @@ function OccasionCard({ occasion, products = [], isLoading = false }) {
 
 export function OccasionGrid({ products = [], isLoading = false }) {
   const { t } = useTranslation('home')
+  const { data: occasionBanners = [], isLoading: bannersLoading } = useBanners('occasion', { limit: 20 })
+
+  const bannerByKey = useMemo(() => {
+    const map = new Map()
+    for (const banner of occasionBanners) {
+      const key = banner?.occasion_key
+      if (key && !map.has(key)) map.set(key, banner)
+    }
+    return map
+  }, [occasionBanners])
+
+  const cardLoading = isLoading || bannersLoading
 
   return (
     <section className="py-10 sm:py-12">
@@ -65,7 +90,13 @@ export function OccasionGrid({ products = [], isLoading = false }) {
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {OCCASIONS.slice(0, 3).map((occasion) => (
-            <OccasionCard key={occasion.key} occasion={occasion} products={products} isLoading={isLoading} />
+            <OccasionCard
+              key={occasion.key}
+              occasion={occasion}
+              products={products}
+              banner={bannerByKey.get(occasion.key)}
+              isLoading={cardLoading}
+            />
           ))}
         </div>
       </div>

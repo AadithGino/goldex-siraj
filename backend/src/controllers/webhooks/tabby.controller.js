@@ -1,52 +1,60 @@
-import * as orderService from '../../services/order.service.js'
+import { Order } from '../../models/commerce.models.js'
+import { finalizeTabbyPayment } from '../../services/tabby.payment.service.js'
 import {
-  extractTabbyPaymentData,
-  isTabbyPendingStatus,
-  isTabbySuccessStatus,
   resolveGoldexOrderIdFromTabbyReference,
-  verifyTabbyWebhookSignature,
+  verifyTabbyWebhookAuth,
 } from '../../services/tabby.service.js'
-import { AppError } from '../../utils/AppError.js'
 import { logger } from '../../config/logger.js'
 
-function shouldRetryWebhook(error) {
-  if (!(error instanceof AppError)) return true
-  return Number(error.statusCode) >= 500
-}
+const ACTIONABLE_STATUSES = new Set(['authorized', 'closed'])
 
+/**
+ * Webhooks are notifications only: the payment is re-fetched with Retrieve Payment
+ * before anything is marked paid or captured. Duplicates and out-of-order delivery are
+ * safe because finalizeTabbyPayment is idempotent and never downgrades a status.
+ */
 export async function handleWebhook(req, res) {
-  const signature = req.headers['x-tabby-signature']
-  if (!verifyTabbyWebhookSignature(req.rawBody, signature)) {
-    logger.warn({ requestId: req.id }, 'Rejected Tabby webhook with invalid signature')
-    return res.status(400).json({ success: false })
+  if (!verifyTabbyWebhookAuth(req.headers)) {
+    logger.warn({ requestId: req.id }, 'Rejected Tabby webhook with invalid auth header')
+    return res.status(401).json({ success: false })
   }
 
-  const payment = extractTabbyPaymentData(req.body || {})
-  const orderId = resolveGoldexOrderIdFromTabbyReference(payment.orderReference)
-  const success = isTabbySuccessStatus(payment.status) && !isTabbyPendingStatus(payment.status)
+  const body = req.body || {}
+  const paymentId = body.id ? String(body.id) : null
+  const status = String(body.status || '').toLowerCase()
+  const reference = body.order?.reference_id || null
+  logger.info({
+    requestId: req.id,
+    paymentId,
+    status,
+    reference,
+    isTest: body.is_test,
+    captures: Array.isArray(body.captures) ? body.captures.length : 0,
+    refunds: Array.isArray(body.refunds) ? body.refunds.length : 0,
+  }, 'Tabby webhook received')
 
-  if (success && orderId && payment.id && payment.amount > 0) {
-    try {
-      await orderService.applyOnlinePaymentFromProvider(orderId, {
-        transactionId: payment.id,
-        amount: payment.amount,
-        payload: { provider: 'tabby', webhook: req.body },
-      })
-      logger.info({ orderId, transactionId: payment.id, requestId: req.id }, 'Tabby webhook marked order paid')
-    } catch (error) {
-      logger.error({ err: error, orderId, requestId: req.id }, 'Tabby webhook processing failed')
-      if (shouldRetryWebhook(error)) {
-        return res.status(500).json({ success: false })
-      }
-    }
-  } else {
-    logger.info({
-      orderId,
-      status: payment.status,
-      requestId: req.id,
-    }, 'Tabby webhook ignored (not a successful capture)')
+  if (!paymentId || !ACTIONABLE_STATUSES.has(status)) {
+    return res.status(200).json({ success: true })
   }
 
-  return res.status(200).json({ success: true })
+  const orderId = resolveGoldexOrderIdFromTabbyReference(reference)
+  const order = orderId
+    ? await Order.findById(orderId).select('_id paymentStatus tabbyCaptureStatus status').lean()
+    : await Order.findOne({ tabbyPaymentId: paymentId }).select('_id paymentStatus tabbyCaptureStatus status').lean()
+  if (!order) {
+    // The order transaction may not have committed yet; a non-200 makes Tabby retry.
+    return res.status(404).json({ success: false })
+  }
+
+  const alreadySettled = order.paymentStatus === 'paid' && order.tabbyCaptureStatus === 'captured'
+  res.status(200).json({ success: true })
+  if (alreadySettled) return
+
+  finalizeTabbyPayment(order._id, { paymentId, source: 'webhook' })
+    .then((result) => {
+      logger.info({ orderId: String(order._id), paymentId, outcome: result.outcome }, 'Tabby webhook processed')
+    })
+    .catch((error) => {
+      logger.error({ err: error, orderId: String(order._id), paymentId }, 'Tabby webhook processing failed; reconciliation will retry')
+    })
 }
-

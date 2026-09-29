@@ -1,0 +1,84 @@
+{
+  "_comment": "Example POST /api/v2/checkout body from Goldex (no API keys). Field names match Tabby session creation.",
+  "merchant_code": "<TABBY_MERCHANT_CODE>",
+  "lang": "en",
+  "payment": {
+    "amount": "1250.00",
+    "currency": "AED",
+    "description": "Order GX-10042",
+    "buyer": {
+      "name": "Ahmed Al Mansoori",
+      "email": "customer@example.com",
+      "phone": "+971501234567"
+    },
+    "shipping_address": {
+      "address": "Building 12, Al Wasl Road",
+      "city": "Dubai",
+      "zip": "00000",
+      "country": "AE"
+    },
+    "order": {
+      "reference_id": "674a1b2c3d4e5f6789012345_1735123456789",
+      "updated_at": "2026-09-28T10:30:00.000Z",
+      "tax_amount": "59.52",
+      "shipping_amount": "0.00",
+      "discount_amount": "0.00",
+      "items": [
+        {
+          "title": "22K Gold Ring — Size 18",
+          "description": "SKU: GR-2201",
+          "quantity": 1,
+          "unit_price": "1190.48",
+          "reference_id": "674b00000000000000000001",
+          "category": "Jewellery",
+          "image_url": "https://cdn.example.com/products/ring.jpg",
+          "product_url": "https://store.example.com/products/gold-ring"
+        }
+      ]
+    },
+    "buyer_history": {
+      "registered_since": "2025-03-01T08:00:00.000Z",
+      "loyalty_level": 0,
+      "wishlist_count": 2,
+      "is_social_networks_connected": false,
+      "is_phone_number_verified": true,
+      "is_email_verified": true
+    },
+    "order_history": [
+      {
+        "purchased_at": "2026-08-15T14:22:00.000Z",
+        "amount": "890.00",
+        "status": "complete",
+        "payment_method": "card",
+        "buyer": {
+          "name": "Ahmed Al Mansoori",
+          "email": "customer@example.com",
+          "phone": "+971501234567"
+        },
+        "shipping_address": {
+          "address": "Building 12, Al Wasl Road",
+          "city": "Dubai",
+          "zip": "00000",
+          "country": "AE"
+        },
+        "items": [
+          {
+            "title": "Gold Chain 18K",
+            "quantity": 1,
+            "unit_price": "890.00",
+            "reference_id": "674b00000000000000000002"
+          }
+        ]
+      }
+    ],
+    "meta": {
+      "customer": "674a00000000000000000099",
+      "order_id": "GX-10042"
+    }
+  },
+  "merchant_urls": {
+    "success": "https://store.example.com/orders/674a1b2c3d4e5f6789012345?payment=success&provider=tabby",
+    "cancel": "https://store.example.com/checkout?tabby=cancelled&order=674a1b2c3d4e5f6789012345",
+    "failure": "https://store.example.com/checkout?tabby=failed&order=674a1b2c3d4e5f6789012345"
+  }
+}

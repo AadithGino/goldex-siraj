@@ -17,6 +17,8 @@ function adapt(row, payments) {
     online_checkout_provider: payments?.online_checkout_provider || null,
     paymob_configured: payments?.paymob_configured === true,
     tabby_configured: payments?.tabby_configured === true,
+    tabby_public_key: payments?.tabby_public_key || null,
+    tabby_merchant_code: payments?.tabby_merchant_code || null,
   }
 }
 export function useStoreSettings() {

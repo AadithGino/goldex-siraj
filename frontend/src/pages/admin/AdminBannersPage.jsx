@@ -7,12 +7,12 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAdminBanners, useAdminBannerMutations } from '@/hooks/useAdminBanners'
 import { BannerFormDialog } from '@/components/admin/banners/BannerFormDialog'
-import { formatBannerSize, getBannerSpec, BANNER_POSITIONS } from '@/lib/bannerSpecs'
+import { formatBannerSize, getBannerSpec, BANNER_POSITIONS, BANNER_SPECS } from '@/lib/bannerSpecs'
 import { ArabicContentBadge } from '@/components/admin/shared/LocaleFieldTabs'
 import { hasArabicContent } from '@/lib/contentLocale'
 
 const POSITION_LABELS = Object.fromEntries(
-  BANNER_POSITIONS.map((p) => [p, p.replace(/_/g, ' ')]),
+  BANNER_POSITIONS.map((p) => [p, BANNER_SPECS[p]?.label || p.replace(/_/g, ' ')]),
 )
 
 export function AdminBannersPage() {
@@ -39,7 +39,7 @@ export function AdminBannersPage() {
     <div>
       <AdminPageHeader
         title="Banners"
-        description="Upload separate desktop and mobile wide images per slot. Storefront shows image-only creatives."
+        description="Upload homepage creatives: carousels, strips, occasion cards, and custom / sell jewellery panels."
         action={
           <Button onClick={() => { setEditing(null); setFormOpen(true) }}>
             <Plus className="h-4 w-4" />
@@ -76,6 +76,9 @@ export function AdminBannersPage() {
                   <p className="font-medium text-navy">{banner.title}</p>
                   <ArabicContentBadge show={hasArabicContent(banner, ['title', 'image_url', 'mobile_image_url'])} />
                   <Badge variant="gold">{POSITION_LABELS[banner.position] || banner.position}</Badge>
+                  {banner.occasion_key && (
+                    <Badge variant="outline">Occasion: {banner.occasion_key}</Badge>
+                  )}
                   <Badge variant={banner.is_active ? 'success' : 'muted'}>
                     {banner.is_active ? 'Active' : 'Inactive'}
                   </Badge>

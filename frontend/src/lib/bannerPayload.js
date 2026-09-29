@@ -1,4 +1,4 @@
-import { BANNER_POSITIONS } from '@/lib/bannerSpecs'
+import { BANNER_POSITIONS, isSingleImageBannerPosition } from '@/lib/bannerSpecs'
 import { dubaiYmdFromInstant, isYmd } from '@/lib/dubaiTime'
 
 export class BannerPayloadError extends Error {
@@ -49,6 +49,15 @@ export function toBannerPayload(input = {}, { partial = false } = {}) {
 
   const payload = {}
   if (!partial || input.position != null) payload.position = position
+  if ('occasion_key' in input || !partial) {
+    payload.occasion_key = optionalString(input.occasion_key)
+  }
+  if (!partial && position === 'occasion' && !payload.occasion_key) {
+    throw new BannerPayloadError('occasion_key is required for occasion home cards')
+  }
+  if (!partial && position !== 'occasion' && payload.occasion_key) {
+    throw new BannerPayloadError('occasion_key is only allowed when position is occasion')
+  }
   if (!partial || input.title != null) payload.title = requireNonEmpty(input.title, 'title')
   if ('title_ar' in input || !partial) payload.title_ar = optionalString(input.title_ar)
   if ('subtitle' in input || !partial) payload.subtitle = optionalString(input.subtitle)
@@ -60,7 +69,13 @@ export function toBannerPayload(input = {}, { partial = false } = {}) {
     payload.image_url = requireNonEmpty(input.image_url, 'image_url')
   }
   if (!partial || input.mobile_image_url != null) {
-    payload.mobile_image_url = requireNonEmpty(input.mobile_image_url, 'mobile_image_url')
+    const mobile = input.mobile_image_url == null || input.mobile_image_url === ''
+      ? null
+      : requireNonEmpty(input.mobile_image_url, 'mobile_image_url')
+    if (!partial && !isSingleImageBannerPosition(position) && !mobile) {
+      throw new BannerPayloadError('mobile_image_url is required')
+    }
+    if (mobile) payload.mobile_image_url = mobile
   }
   if ('image_url_ar' in input || !partial) payload.image_url_ar = optionalString(input.image_url_ar)
   if ('mobile_image_url_ar' in input || !partial) {

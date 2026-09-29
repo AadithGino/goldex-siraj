@@ -145,8 +145,13 @@ const certificateSchema = new Schema({ productId: { type: Schema.Types.ObjectId,
 const bannerSchema = new Schema({
   position: {
     type: String,
-    enum: ['hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom'],
+    enum: ['hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom', 'occasion', 'custom_jewellery', 'sell_jewellery'],
     default: 'hero',
+  },
+  occasionKey: {
+    type: String,
+    enum: ['bridal', 'daily', 'gift', 'festive', 'office'],
+    default: null,
   },
   title: String,
   titleAr: String,

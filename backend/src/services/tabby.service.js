@@ -1,6 +1,15 @@
 import crypto from 'node:crypto'
 import { config } from '../config/env.js'
+import { logger } from '../config/logger.js'
+import { Product } from '../models/catalog.models.js'
+import { Order, WishlistItem } from '../models/commerce.models.js'
 import { AppError } from '../utils/AppError.js'
+
+const TABBY_CURRENCY = 'AED'
+const TABBY_REQUEST_TIMEOUT_MS = 15_000
+const ORDER_HISTORY_LIMIT = 10
+// UAE has no postal codes, but Tabby requires `shipping_address.zip`.
+const UAE_NO_POSTCODE = '00000'
 
 function normalizeBaseUrl(url) {
   return String(url || '').replace(/\/+$/, '')
@@ -10,6 +19,25 @@ function normalizeAmount(value) {
   const amount = Number(value)
   if (!Number.isFinite(amount)) return 0
   return Math.round(amount * 100) / 100
+}
+
+function money(value) {
+  return normalizeAmount(value).toFixed(2)
+}
+
+function isoDate(value) {
+  if (!value) return undefined
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
+function nonEmpty(value) {
+  const text = String(value ?? '').trim()
+  return text || undefined
+}
+
+function compact(obj) {
+  return Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined))
 }
 
 export function getTabbyConfig() {
@@ -25,6 +53,10 @@ export function getTabbyConfig() {
     baseUrl,
     isConfigured,
   }
+}
+
+export function normalizeTabbyLang(value) {
+  return String(value || '').toLowerCase().startsWith('ar') ? 'ar' : 'en'
 }
 
 export function resolveGoldexOrderIdFromTabbyReference(raw) {
@@ -43,52 +75,8 @@ export function buildTabbyReference(orderId) {
   return `${id}_${Date.now()}`
 }
 
-function splitName(fullName = '') {
-  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean)
-  return {
-    firstName: parts[0] || 'Customer',
-    lastName: parts.slice(1).join(' ') || 'Goldex',
-  }
-}
-
-function findCheckoutUrl(node) {
-  if (!node || typeof node !== 'object') return null
-  if (typeof node.web_url === 'string' && node.web_url.trim()) return node.web_url
-  if (typeof node.checkout_url === 'string' && node.checkout_url.trim()) return node.checkout_url
-  if (typeof node.url === 'string' && node.url.trim()) return node.url
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const nested = findCheckoutUrl(item)
-      if (nested) return nested
-    }
-    return null
-  }
-  for (const value of Object.values(node)) {
-    const nested = findCheckoutUrl(value)
-    if (nested) return nested
-  }
-  return null
-}
-
-function extractTabbyCheckoutUrl(data) {
-  return (
-    data?.web_url
-    || data?.checkout_url
-    || data?.configuration?.available_products?.installments?.[0]?.web_url
-    || data?.configuration?.available_products?.installments?.[0]?.checkout_url
-    || findCheckoutUrl(data)
-    || null
-  )
-}
-
-function extractTabbyRejectionReason(data) {
-  return (
-    data?.configuration?.products?.installments?.rejection_reason
-    || data?.configuration?.products?.pay_later?.rejection_reason
-    || data?.rejection_reason
-    || data?.status_reason
-    || null
-  )
+export function tabbyCaptureReferenceId(orderId) {
+  return `capture-${orderId}`
 }
 
 async function tabbyRequest(path, { method = 'GET', body } = {}) {
@@ -97,107 +85,275 @@ async function tabbyRequest(path, { method = 'GET', body } = {}) {
     throw new AppError(503, 'TABBY_NOT_CONFIGURED', 'Tabby is not configured')
   }
 
-  const response = await fetch(`${cfg.baseUrl}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${cfg.secretKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: body == null ? undefined : JSON.stringify(body),
-  })
+  let response
+  try {
+    response = await fetch(`${cfg.baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${cfg.secretKey}`,
+        'Content-Type': 'application/json',
+        ...(cfg.merchantCode ? { 'X-Merchant-Code': cfg.merchantCode } : {}),
+      },
+      body: body == null ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(TABBY_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError'
+    throw new AppError(
+      timedOut ? 504 : 502,
+      timedOut ? 'TABBY_TIMEOUT' : 'TABBY_UNREACHABLE',
+      timedOut ? 'Tabby API timed out' : `Tabby API unreachable: ${error?.message || 'network error'}`,
+      { path, method },
+    )
+  }
 
   const data = await response.json().catch(() => null)
   if (!response.ok) {
     const detail = data?.error || data?.message || JSON.stringify(data)
-    throw new AppError(502, 'TABBY_API_FAILED', `Tabby API failed: ${detail}`)
+    throw new AppError(502, 'TABBY_API_FAILED', `Tabby API failed: ${detail}`, {
+      path,
+      method,
+      http_status: response.status,
+      response: data,
+    })
   }
   return data
 }
 
-export async function createTabbyCheckout({ order, customer, reference = null }) {
+function extractTabbyCheckoutUrl(data) {
+  return data?.configuration?.available_products?.installments?.[0]?.web_url || null
+}
+
+export function extractTabbyRejectionReason(data) {
+  return data?.configuration?.products?.installments?.rejection_reason || null
+}
+
+export function tabbyRejectedError(reason) {
+  return new AppError(
+    409,
+    'TABBY_REJECTED',
+    'Sorry, Tabby is unable to approve this purchase. Please use an alternative payment method for your order.',
+    { rejection_reason: reason || 'not_available' },
+  )
+}
+
+function assertTabbyBuyer({ email, phone, name }) {
+  if (!email) {
+    throw new AppError(422, 'TABBY_EMAIL_REQUIRED', 'Add an email address to your profile to pay with Tabby')
+  }
+  if (!phone) {
+    throw new AppError(422, 'TABBY_PHONE_REQUIRED', 'A mobile number is required to pay with Tabby')
+  }
+  if (!name) {
+    throw new AppError(422, 'TABBY_NAME_REQUIRED', 'A full name is required to pay with Tabby')
+  }
+}
+
+export function buildTabbyBuyer({ customer, address }) {
+  return {
+    name: nonEmpty(address?.recipientName) || nonEmpty(customer?.fullName),
+    email: nonEmpty(customer?.email),
+    phone: nonEmpty(address?.phone) || nonEmpty(customer?.phone),
+  }
+}
+
+function buildShippingAddress(address) {
+  if (!address) return undefined
+  const street = [address.line1, address.line2].map(nonEmpty).filter(Boolean).join(', ')
+  const city = nonEmpty(address.city) || nonEmpty(address.state)
+  if (!street || !city) return undefined
+  return {
+    city,
+    address: street,
+    zip: nonEmpty(address.pincode) || UAE_NO_POSTCODE,
+  }
+}
+
+const ORDER_HISTORY_STATUS = {
+  placed: 'new',
+  confirmed: 'processing',
+  processing: 'processing',
+  shipped: 'processing',
+  delivered: 'complete',
+  cancelled: 'canceled',
+  returned: 'refunded',
+  partially_returned: 'complete',
+}
+
+const ORDER_HISTORY_PAYMENT_METHOD = {
+  cod: 'cod',
+  online: 'card',
+}
+
+function historyItem(item) {
+  return compact({
+    reference_id: nonEmpty(item.sku),
+    title: String(item.productName || 'Item').slice(0, 120),
+    quantity: Math.max(1, Number(item.qty) || 1),
+    unit_price: money(Number(item.lineTotal || 0) / Math.max(1, Number(item.qty) || 1)),
+  })
+}
+
+function buildOrderHistoryEntry(order, customer) {
+  const address = order.shipTo || {}
+  const buyer = buildTabbyBuyer({ customer, address })
+  return compact({
+    purchased_at: isoDate(order.placedAt || order.createdAt),
+    amount: money(order.finalTotal ?? order.total),
+    payment_method: ORDER_HISTORY_PAYMENT_METHOD[order.paymentMethod],
+    status: ORDER_HISTORY_STATUS[order.status] || 'unknown',
+    buyer: compact(buyer),
+    shipping_address: buildShippingAddress(address),
+    items: (order.items || []).map(historyItem),
+  })
+}
+
+/**
+ * Real customer data for Tabby scoring: registration date, verified flags, wishlist,
+ * and the customer's previous orders. Optional fields are omitted when unknown.
+ */
+export async function loadTabbyCustomerContext(customer, { excludeOrderId = null, session = null } = {}) {
+  if (!customer) return { buyerHistory: undefined, orderHistory: [] }
+  const filter = { customerId: customer._id || customer.id }
+  if (excludeOrderId) filter._id = { $ne: excludeOrderId }
+
+  const [pastOrders, deliveredCount, wishlistCount] = await Promise.all([
+    Order.find(filter).sort({ placedAt: -1 }).limit(ORDER_HISTORY_LIMIT).session(session).lean(),
+    Order.countDocuments({ ...filter, status: 'delivered' }).session(session),
+    WishlistItem.countDocuments({ customerId: filter.customerId }).session(session),
+  ])
+
+  const socialLogin = ['google', 'apple'].includes(customer.authProvider)
+  const buyerHistory = compact({
+    registered_since: isoDate(customer.createdAt),
+    loyalty_level: deliveredCount,
+    wishlist_count: wishlistCount,
+    is_social_networks_connected: socialLogin,
+    is_phone_number_verified: customer.authProvider === 'otp' && Boolean(customer.phone) ? true : undefined,
+    is_email_verified: socialLogin && Boolean(customer.email) ? true : undefined,
+  })
+
+  return {
+    buyerHistory,
+    orderHistory: pastOrders.map((order) => buildOrderHistoryEntry(order, customer)),
+  }
+}
+
+async function loadItemCatalogMeta(items, session) {
+  const productIds = [...new Set((items || []).map((item) => item.productId).filter(Boolean).map(String))]
+  if (!productIds.length) return new Map()
+  const products = await Product.find({ _id: { $in: productIds } })
+    .populate('categoryId', 'name')
+    .populate('brandId', 'name')
+    .session(session)
+    .lean()
+  return new Map(products.map((product) => [String(product._id), product]))
+}
+
+function buildSessionItems(order, catalogMeta) {
+  const appOrigin = config.clientOrigins[0]
+  return (order.items || []).map((item) => {
+    const qty = Math.max(1, Number(item.qty) || 1)
+    const product = catalogMeta.get(String(item.productId)) || {}
+    const slug = nonEmpty(item.productSlug) || nonEmpty(product.slug)
+    return compact({
+      reference_id: nonEmpty(item.sku),
+      title: String(item.productName || 'Jewellery').slice(0, 120),
+      description: nonEmpty(item.variantLabel),
+      quantity: qty,
+      unit_price: money(Number(item.lineTotal ?? item.unitPrice ?? 0) / qty),
+      discount_amount: '0.00',
+      image_url: nonEmpty(item.imageUrl),
+      product_url: slug && appOrigin ? `${appOrigin}/product/${slug}` : undefined,
+      category: nonEmpty(product.categoryId?.name) || 'Jewellery',
+      brand: nonEmpty(product.brandId?.name),
+      color: nonEmpty(item.metalColor),
+      product_material: nonEmpty(item.metalType),
+      is_refundable: true,
+    })
+  })
+}
+
+export function buildTabbyMerchantUrls(orderId, { returnTo = 'checkout' } = {}) {
+  const appOrigin = config.clientOrigins[0] || 'http://localhost:5173'
+  const success = `${appOrigin}/orders/${orderId}?payment=return&provider=tabby`
+  if (returnTo === 'order') {
+    return {
+      success,
+      cancel: `${appOrigin}/orders/${orderId}?payment=cancelled&provider=tabby`,
+      failure: `${appOrigin}/orders/${orderId}?payment=failed&provider=tabby`,
+    }
+  }
+  return {
+    success,
+    cancel: `${appOrigin}/checkout?tabby=cancelled&order=${orderId}`,
+    failure: `${appOrigin}/checkout?tabby=failed&order=${orderId}`,
+  }
+}
+
+/** Full-payload session creation — only called from the "Place order" / "Pay with Tabby" action. */
+export async function createTabbyCheckout({ order, customer, reference = null, lang = 'en', returnTo = 'checkout', session = null }) {
   const cfg = getTabbyConfig()
   if (!cfg.isConfigured) {
     throw new AppError(503, 'TABBY_NOT_CONFIGURED', 'Tabby is not configured')
   }
 
   const amount = normalizeAmount(order.amountDue ?? order.total ?? 0)
-  if (amount < 1) {
-    throw new AppError(422, 'TABBY_MIN_AMOUNT', 'Tabby requires at least AED 1.00')
+  if (amount <= 0) {
+    throw new AppError(422, 'TABBY_INVALID_AMOUNT', 'Nothing to pay with Tabby for this order')
   }
 
-  const appOrigin = config.clientOrigins[0] || 'http://localhost:5173'
-  const orderRef = reference || buildTabbyReference(order.id)
   const shipTo = order.shipTo || {}
-  const { firstName, lastName } = splitName(shipTo.recipientName || customer?.fullName)
+  const buyer = buildTabbyBuyer({ customer, address: shipTo })
+  assertTabbyBuyer(buyer)
+  const shippingAddress = buildShippingAddress(shipTo)
+  if (!shippingAddress) {
+    throw new AppError(422, 'TABBY_ADDRESS_REQUIRED', 'A complete delivery address is required to pay with Tabby')
+  }
 
-  const items = (order.items || []).map((item, index) => {
-    const qty = Math.max(1, Number(item.qty) || 1)
-    const lineTotal = normalizeAmount(item.lineTotal ?? item.unitPrice ?? 0)
-    const unitPrice = normalizeAmount(lineTotal / qty)
-    return {
-      title: String(item.productName || `Item ${index + 1}`).slice(0, 120),
-      quantity: qty,
-      unit_price: unitPrice.toFixed(2),
-      total_amount: normalizeAmount(unitPrice * qty).toFixed(2),
-      category: 'jewellery',
-    }
-  })
+  const [context, catalogMeta] = await Promise.all([
+    loadTabbyCustomerContext(customer, { excludeOrderId: order._id || order.id, session }),
+    loadItemCatalogMeta(order.items, session),
+  ])
+  const orderRef = reference || buildTabbyReference(order.id)
 
   const payload = {
     merchant_code: cfg.merchantCode,
-    lang: 'en',
-    payment: {
-      amount: amount.toFixed(2),
-      currency: 'AED',
+    lang: normalizeTabbyLang(lang),
+    payment: compact({
+      amount: money(amount),
+      currency: TABBY_CURRENCY,
       description: `Order ${order.orderNumber || order.id}`,
-      buyer: {
-        email: String(customer?.email || 'customer@goldex.ae'),
-        phone: String(shipTo.phone || customer?.phone || '+971500000000'),
-        name: `${firstName} ${lastName}`.trim(),
-      },
+      buyer,
+      shipping_address: shippingAddress,
       order: {
         reference_id: orderRef,
-        items: items.length ? items : [{
-          title: `Order ${order.orderNumber || order.id}`,
-          quantity: 1,
-          unit_price: amount.toFixed(2),
-          total_amount: amount.toFixed(2),
-          category: 'jewellery',
-        }],
+        updated_at: isoDate(order.updatedAt || new Date()),
+        tax_amount: money(order.taxAmount),
+        shipping_amount: money(order.shippingFee),
+        discount_amount: money(Number(order.discountAmount || 0) + Number(order.walletApplied || 0)),
+        items: buildSessionItems(order, catalogMeta),
       },
-      shipping_address: {
-        city: String(shipTo.city || 'Dubai'),
-        address: String(shipTo.line1 || shipTo.line_1 || 'Dubai'),
-        zip: String(shipTo.postalCode || shipTo.postal_code || '00000'),
-        country: 'AE',
+      buyer_history: context.buyerHistory,
+      order_history: context.orderHistory,
+      meta: {
+        customer: String(customer?._id || customer?.id || order.customerId),
+        order_id: String(order.orderNumber || order.id),
       },
-    },
-    merchant_urls: {
-      success: `${appOrigin}/orders/${order.id}?payment=return&provider=tabby`,
-      cancel: `${appOrigin}/orders/${order.id}?payment=cancelled&provider=tabby`,
-      failure: `${appOrigin}/orders/${order.id}?payment=failed&provider=tabby`,
-    },
+    }),
+    merchant_urls: buildTabbyMerchantUrls(order.id, { returnTo }),
   }
 
   const data = await tabbyRequest('/api/v2/checkout', { method: 'POST', body: payload })
+  const status = String(data?.status || '').toLowerCase()
   const checkoutUrl = extractTabbyCheckoutUrl(data)
-  if (!checkoutUrl) {
-    const status = String(data?.status || '').toLowerCase()
-    const reason = extractTabbyRejectionReason(data)
-    if (status === 'rejected') {
-      throw new AppError(
-        409,
-        'TABBY_NOT_AVAILABLE',
-        reason ? `Tabby is unavailable for this order: ${reason}` : 'Tabby is unavailable for this order',
-      )
-    }
-    throw new AppError(
-      502,
-      'TABBY_CHECKOUT_FAILED',
-      reason
-        ? `Tabby did not return a checkout URL: ${reason}`
-        : `Tabby did not return a checkout URL (status: ${status || 'unknown'})`,
-    )
+  if (status === 'rejected' || !checkoutUrl) {
+    logger.info({
+      orderId: String(order.id),
+      status,
+      rejectionReason: extractTabbyRejectionReason(data),
+    }, 'Tabby session not available for order')
+    throw tabbyRejectedError(extractTabbyRejectionReason(data))
   }
 
   return {
@@ -205,80 +361,132 @@ export async function createTabbyCheckout({ order, customer, reference = null })
     paymentId: data?.payment?.id ? String(data.payment.id) : null,
     reference: orderRef,
     checkoutUrl,
-    payload: data,
   }
+}
+
+/**
+ * Background pre-scoring. Fail-safe: any API error or timeout reports Tabby as available
+ * so checkout is never blocked; the real session creation re-checks eligibility.
+ */
+export async function runTabbyPrescoring({ amount, customer, address, lang = 'en' }) {
+  const cfg = getTabbyConfig()
+  if (!cfg.isConfigured) return { available: false, reason: 'not_configured' }
+
+  const value = normalizeAmount(amount)
+  if (value <= 0) return { available: true, reason: null }
+
+  const buyer = buildTabbyBuyer({ customer, address })
+  if (!buyer.email) return { available: false, reason: 'email_required' }
+  if (!buyer.phone) return { available: false, reason: 'phone_required' }
+
+  try {
+    const context = await loadTabbyCustomerContext(customer)
+    const data = await tabbyRequest('/api/v2/checkout', {
+      method: 'POST',
+      body: {
+        merchant_code: cfg.merchantCode,
+        lang: normalizeTabbyLang(lang),
+        payment: compact({
+          amount: money(value),
+          currency: TABBY_CURRENCY,
+          buyer: compact(buyer),
+          shipping_address: buildShippingAddress(address),
+          buyer_history: context.buyerHistory,
+          order_history: context.orderHistory,
+        }),
+      },
+    })
+    const status = String(data?.status || '').toLowerCase()
+    if (status === 'rejected') {
+      return { available: false, reason: extractTabbyRejectionReason(data) || 'not_available' }
+    }
+    return { available: true, reason: null }
+  } catch (error) {
+    logger.warn({ err: error }, 'Tabby pre-scoring failed; showing Tabby (fail-safe)')
+    return { available: true, reason: null }
+  }
+}
+
+export async function retrieveTabbyPayment(paymentId) {
+  if (!paymentId) throw new AppError(422, 'TABBY_PAYMENT_ID_REQUIRED', 'Missing Tabby payment id')
+  return tabbyRequest(`/api/v2/payments/${encodeURIComponent(String(paymentId))}`)
 }
 
 export async function getTabbyPayment(paymentId) {
   if (!paymentId) return null
   try {
-    return await tabbyRequest(`/api/v2/payments/${encodeURIComponent(String(paymentId))}`)
-  } catch {
+    return await retrieveTabbyPayment(paymentId)
+  } catch (error) {
+    logger.warn({ err: error, paymentId }, 'Tabby retrieve payment failed')
     return null
   }
 }
 
-export async function getTabbyCheckout(checkoutId) {
-  if (!checkoutId) return null
-  try {
-    return await tabbyRequest(`/api/v2/checkout/${encodeURIComponent(String(checkoutId))}`)
-  } catch {
-    return null
-  }
+export async function captureTabbyPayment(paymentId, { amount, referenceId }) {
+  return tabbyRequest(`/api/v2/payments/${encodeURIComponent(String(paymentId))}/captures`, {
+    method: 'POST',
+    body: { amount: money(amount), reference_id: String(referenceId) },
+  })
 }
 
-export function isTabbySuccessStatus(value) {
-  const status = String(value || '').trim().toLowerCase()
-  return ['authorized', 'captured', 'closed', 'paid'].includes(status)
+export async function refundTabbyPayment(paymentId, { amount, referenceId, reason }) {
+  return tabbyRequest(`/api/v2/payments/${encodeURIComponent(String(paymentId))}/refunds`, {
+    method: 'POST',
+    body: compact({
+      amount: money(amount),
+      reference_id: String(referenceId),
+      reason: nonEmpty(reason)?.slice(0, 255),
+    }),
+  })
 }
 
-export function isTabbyPendingStatus(value) {
-  const status = String(value || '').trim().toLowerCase()
-  return ['created', 'new', 'pending', 'processing'].includes(status)
+export async function closeTabbyPayment(paymentId) {
+  return tabbyRequest(`/api/v2/payments/${encodeURIComponent(String(paymentId))}/close`, {
+    method: 'POST',
+  })
 }
 
-export function extractTabbyOrderReference(payload = {}) {
-  return payload?.payment?.order?.reference_id
-    || payload?.order?.reference_id
-    || payload?.reference_id
-    || payload?.merchant_reference_id
-    || null
+export function normalizeTabbyStatus(value) {
+  return String(value || '').trim().toUpperCase()
+}
+
+export function tabbyEntriesByDate(entries) {
+  return [...(Array.isArray(entries) ? entries : [])]
+    .sort((a, b) => new Date(a?.created_at || 0) - new Date(b?.created_at || 0))
+}
+
+export function sumTabbyEntries(entries) {
+  return normalizeAmount(tabbyEntriesByDate(entries).reduce((sum, entry) => sum + Number(entry?.amount || 0), 0))
 }
 
 export function extractTabbyPaymentData(payload = {}) {
   const payment = payload?.payment && typeof payload.payment === 'object' ? payload.payment : payload
-  const amount = normalizeAmount(payment?.captured_amount ?? payment?.amount ?? payload?.amount)
-  const currency = String(payment?.currency || payload?.currency || 'AED')
   return {
-    id: payment?.id ? String(payment.id) : (payload?.id ? String(payload.id) : null),
-    status: payment?.status || payload?.status || null,
-    checkoutId: payload?.id ? String(payload.id) : null,
-    orderReference: extractTabbyOrderReference(payload),
-    amount,
-    currency,
+    id: payment?.id ? String(payment.id) : null,
+    status: normalizeTabbyStatus(payment?.status),
+    orderReference: payment?.order?.reference_id || null,
+    amount: normalizeAmount(payment?.amount),
+    currency: String(payment?.currency || TABBY_CURRENCY).toUpperCase(),
+    captures: tabbyEntriesByDate(payment?.captures),
+    refunds: tabbyEntriesByDate(payment?.refunds),
+    capturedAmount: sumTabbyEntries(payment?.captures),
+    refundedAmount: sumTabbyEntries(payment?.refunds),
     raw: payload,
   }
 }
 
-function timingSafeEqualHex(a, b) {
-  const left = String(a || '').trim().toLowerCase()
-  const right = String(b || '').trim().toLowerCase()
-  if (!left || !right || left.length !== right.length) return false
-  return crypto.timingSafeEqual(Buffer.from(left), Buffer.from(right))
+function timingSafeEqualText(a, b) {
+  const left = Buffer.from(String(a || ''))
+  const right = Buffer.from(String(b || ''))
+  if (!left.length || left.length !== right.length) return false
+  return crypto.timingSafeEqual(left, right)
 }
 
-export function verifyTabbyWebhookSignature(rawBody, signatureHeader) {
+/** Tabby echoes the static header (title/value) chosen when the webhook was registered. */
+export function verifyTabbyWebhookAuth(headers = {}) {
   const cfg = getTabbyConfig()
   if (!cfg.webhookSecret) return config.nodeEnv !== 'production'
-  const signature = String(signatureHeader || '')
-    .replace(/^sha256=/i, '')
-    .trim()
-    .toLowerCase()
-  if (!signature) return false
-  const digest = crypto
-    .createHmac('sha256', cfg.webhookSecret)
-    .update(String(rawBody || ''))
-    .digest('hex')
-  return timingSafeEqualHex(digest, signature)
+  const headerName = String(cfg.webhookHeaderName || '').trim().toLowerCase()
+  if (!headerName) return false
+  return timingSafeEqualText(headers[headerName], cfg.webhookSecret)
 }
-

@@ -70,7 +70,7 @@
   "copyright": "© {{year}} {{storeName}}. جميع الحقوق محفوظة.",
   "footerTagline": "مجوهرات ذهب وألماس مصنوعة يدوياً مع شهادات جودة.",
   "storeNameFallback": "ذا جولديكس للمجوهرات ش.ذ.م.م",
-  "footerComplianceEmail": "الامتثال",
+  "footerWhatsApp": "واتساب",
   "goldRatePerGram": "22K {{rate}}/جم",
   "goldRateTickerAria": "أسعار الذهب المباشرة",
   "liveGoldRate": "22K مباشر: {{rate}}/جم",

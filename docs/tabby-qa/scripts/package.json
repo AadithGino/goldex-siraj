@@ -1,0 +1,8 @@
+{
+  "name": "goldex-tabby-qa-capture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.51.0"
+  }
+}

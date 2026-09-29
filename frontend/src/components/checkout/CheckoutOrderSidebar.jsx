@@ -5,6 +5,7 @@ import { formatVariantSize } from '@/lib/constants'
 import { useContentLang } from '@/hooks/useContentLang'
 import { pickField } from '@/lib/contentLocale'
 import { CartSummary } from '@/components/cart/CartSummary'
+import { ProductPaymentOptions } from '@/components/product/ProductPaymentOptions'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export function CheckoutOrderSidebar({
@@ -85,6 +86,14 @@ export function CheckoutOrderSidebar({
         checkoutLabel={checkoutLabel}
         checkoutTo={checkoutTo}
       />
+
+      {!isLoading && totals.total > 0 && (
+        <ProductPaymentOptions
+          price={totals.total}
+          layout="compact"
+          tabbySource="cart"
+        />
+      )}
     </div>
   )
 }

@@ -27,7 +27,8 @@ let staffCookie
 let customerCookie
 
 const BANNER_POSITIONS = [
-  'hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom',
+  'hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom', 'occasion',
+  'custom_jewellery', 'sell_jewellery',
 ]
 
 function cookieHeader(jar) {
@@ -43,6 +44,7 @@ function shiftDubaiYmd(ymd, deltaDays) {
 function toBannerPayload(input = {}) {
   return {
     position: input.position ?? 'hero',
+    occasion_key: input.occasion_key ?? null,
     title: input.title ?? 'Banner',
     title_ar: input.title_ar ?? null,
     subtitle: input.subtitle ?? null,
@@ -206,6 +208,7 @@ describe('Phase 22.7 banner contract', () => {
           position,
           title: `Banner ${position}`,
           display_order: BANNER_POSITIONS.indexOf(position),
+          ...(position === 'occasion' ? { occasion_key: 'bridal' } : {}),
         }))
       expect(res.status).toBe(201)
       expect(res.body.data.position).toBe(position)

@@ -100,6 +100,43 @@ export const BANNER_SPECS = {
     desktop: { width: 1920, height: 731, ratio: '21:8' },
     mobile: { width: 1080, height: 540, ratio: '2:1' },
   },
+
+  // Home "Shop by Occasion" cards (one banner per occasion key)
+  occasion: {
+    label: 'Occasion home cards',
+    group: 'Home — mid',
+    columns: 3,
+    gridClass: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+    aspectClass: 'aspect-[6/5]',
+    desktopAspect: 'aspect-[6/5]',
+    mobileAspect: 'aspect-[6/5]',
+    desktop: { width: 600, height: 500, ratio: '6:5' },
+    mobile: { width: 600, height: 500, ratio: '6:5' },
+  },
+
+  custom_jewellery: {
+    label: 'Custom jewellery (home half-panel)',
+    group: 'Home — services',
+    columns: 1,
+    gridClass: 'grid-cols-1',
+    aspectClass: 'aspect-[4/5] sm:aspect-[3/4]',
+    desktopAspect: 'aspect-[3/4]',
+    mobileAspect: 'aspect-[4/5]',
+    desktop: { width: 720, height: 960, ratio: '3:4' },
+    mobile: { width: 1080, height: 1350, ratio: '4:5' },
+  },
+
+  sell_jewellery: {
+    label: 'Sell jewellery (home half-panel)',
+    group: 'Home — services',
+    columns: 1,
+    gridClass: 'grid-cols-1',
+    aspectClass: 'aspect-[4/5] sm:aspect-[3/4]',
+    desktopAspect: 'aspect-[3/4]',
+    mobileAspect: 'aspect-[4/5]',
+    desktop: { width: 720, height: 960, ratio: '3:4' },
+    mobile: { width: 1080, height: 1350, ratio: '4:5' },
+  },
 }
 
 /** Order shown in the admin dropdown. */
@@ -111,10 +148,20 @@ export const BANNER_POSITIONS = [
   'deal',
   'gifting',
   'promo_bottom',
+  'occasion',
+  'custom_jewellery',
+  'sell_jewellery',
 ]
 
 export function getBannerSpec(position) {
   return BANNER_SPECS[position] || BANNER_SPECS.hero
+}
+
+/** Banners that use one primary image (no separate mobile wide creative). */
+export const BANNER_SINGLE_IMAGE_POSITIONS = ['occasion', 'custom_jewellery', 'sell_jewellery']
+
+export function isSingleImageBannerPosition(position) {
+  return BANNER_SINGLE_IMAGE_POSITIONS.includes(position)
 }
 
 export function formatBannerSize({ width, height, ratio }) {

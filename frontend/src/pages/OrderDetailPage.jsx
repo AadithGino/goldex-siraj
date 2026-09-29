@@ -33,6 +33,8 @@ import { formatDateSafe } from "@/lib/date";
 import { isEstimatedPricing, orderDisplayTotal } from "@/lib/orderAdapter";
 import { openOrderInvoice } from "@/lib/orderInvoice";
 import { useStoreSettings } from "@/hooks/useStoreSettings";
+import { getContentLang } from "@/lib/contentLocale";
+import { tabbyReasonFromError, tabbyUnavailableMessage } from "@/lib/tabby";
 
 function OrderDetailContent() {
   const { t, i18n } = useTranslation(["orders", "common", "checkout"]);
@@ -53,7 +55,12 @@ function OrderDetailContent() {
       successRaw === "false" ||
       successRaw === "0";
     if (isCancelledReturn) {
-      toast.message("Payment was not completed. You can retry or choose another method.");
+      const fromTabby = searchParams.get("provider") === "tabby";
+      toast.message(
+        fromTabby
+          ? t(payment === "failed" ? "checkout:tabby.failed" : "checkout:tabby.cancelled")
+          : t("orders:paymentNotCompleted"),
+      );
       setSearchParams({}, { replace: true });
       refetch();
       return;
@@ -105,15 +112,15 @@ function OrderDetailContent() {
       try {
         if (shouldConfirm) {
           await paymobConfirm.mutateAsync({ orderId: id, params });
-          if (!cancelled) toast.success("Payment confirmed");
+          if (!cancelled) toast.success(t("orders:paymentConfirmed"));
         } else {
-          toast.message("Refreshing order status…");
+          toast.message(t("orders:confirmingPayment"));
           await refetch();
         }
       } catch (err) {
         if (!cancelled) {
           // Webhook/inquiry may still mark paid shortly after redirect.
-          toast.message(err.message || "Confirming payment…");
+          toast.message(isTabbyReturn ? t("orders:confirmingPayment") : err.message || t("orders:confirmingPayment"));
           await refetch();
           setTimeout(() => {
             if (!cancelled) refetch();
@@ -196,21 +203,29 @@ function OrderDetailContent() {
     order.payment_method === "manual" && order.payment_status === "paid";
 
   const startOnlinePayment = async (provider) => {
+    const lang = getContentLang(i18n.language);
     try {
       const result = provider && provider !== order.payment_provider
         ? await changePayment.mutateAsync({
             orderId: order.id,
             paymentMethod: "online",
             paymentProvider: provider,
+            lang,
           })
         : await paymobCheckout.mutateAsync({
             orderId: order.id,
             paymentProvider: provider || order.payment_provider,
+            lang,
           });
       const checkoutUrl = result?.checkout_url;
       if (checkoutUrl) window.location.assign(checkoutUrl);
     } catch (err) {
-      toast.error(err.message || "Could not start online payment");
+      const tabbyReason = provider === "tabby" ? tabbyReasonFromError(err) : null;
+      toast.error(
+        tabbyReason
+          ? tabbyUnavailableMessage(tabbyReason, t)
+          : err.message || "Could not start online payment",
+      );
     }
   };
 
@@ -360,7 +375,7 @@ function OrderDetailContent() {
                         disabled={paymentBusy}
                         onClick={() => startOnlinePayment("tabby")}
                       >
-                        {paymentBusy ? "Starting payment…" : "Pay with Tabby"}
+                        {paymentBusy ? t("orders:startingPayment") : t("orders:payWithTabby")}
                       </Button>
                     )}
                     {codEnabled && order.payment_method !== "cod" && (

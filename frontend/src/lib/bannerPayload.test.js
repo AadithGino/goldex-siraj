@@ -26,6 +26,7 @@ describe('toBannerPayload', () => {
   it('emits canonical snake_case FE contract', () => {
     expect(toBannerPayload(base)).toEqual({
       position: 'hero',
+      occasion_key: null,
       title: 'Eid Edit',
       title_ar: 'عيد',
       subtitle: 'Shop',
@@ -47,10 +48,41 @@ describe('toBannerPayload', () => {
   })
 
   it('accepts all known positions and rejects unknown', () => {
-    for (const position of ['hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom']) {
-      expect(toBannerPayload({ ...base, position }).position).toBe(position)
+    for (const position of ['hero', 'strip', 'collection', 'promo_top', 'deal', 'gifting', 'promo_bottom', 'occasion', 'custom_jewellery', 'sell_jewellery']) {
+      const payload = position === 'occasion'
+        ? { ...base, position, occasion_key: 'bridal', mobile_image_url: undefined }
+        : { ...base, position }
+      if (position === 'occasion') {
+        const { mobile_image_url: _m, ...rest } = toBannerPayload(payload)
+        expect(rest.position).toBe(position)
+        expect(rest.occasion_key).toBe('bridal')
+      } else {
+        expect(toBannerPayload(payload).position).toBe(position)
+      }
     }
     expect(() => toBannerPayload({ ...base, position: 'sidebar' })).toThrow(BannerPayloadError)
+  })
+
+  it('occasion position requires occasion_key and allows omitting mobile_image_url', () => {
+    expect(toBannerPayload({
+      position: 'occasion',
+      occasion_key: 'gift',
+      title: 'Gift tile',
+      image_url: 'https://cdn.example.com/gift.jpg',
+      display_order: 0,
+      is_active: true,
+    })).toMatchObject({
+      position: 'occasion',
+      occasion_key: 'gift',
+      image_url: 'https://cdn.example.com/gift.jpg',
+    })
+    expect(() => toBannerPayload({
+      position: 'occasion',
+      title: 'Missing key',
+      image_url: 'https://cdn.example.com/x.jpg',
+      display_order: 0,
+      is_active: true,
+    })).toThrow(/occasion_key/)
   })
 
   it('rejects invalid display_order and date order', () => {

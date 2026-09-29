@@ -11,18 +11,30 @@ export const envelope = (body, params = z.object({}).passthrough(), query = z.ob
   query,
 })
 
+const checkoutLang = z.enum(['en', 'ar']).optional()
+
 export const changePendingPaymentSchema = envelope(
   z.object({
     payment_method: z.enum(['cod', 'manual', 'online']),
     payment_provider: z.enum(['paymob', 'tabby']).optional(),
+    lang: checkoutLang,
   }),
   z.object({ id: objectId }),
 )
+
+export const tabbyEligibilitySchema = {
+  body: z.object({
+    address_id: objectId.nullable().optional(),
+    amount: z.coerce.number().finite().min(0).max(10_000_000),
+    lang: checkoutLang,
+  }).strict(),
+}
 
 export const placeOrderSchema = envelope(z.object({
   address_id: objectId,
   payment_method: z.enum(['cod', 'manual', 'online']),
   payment_provider: z.enum(['paymob', 'tabby']).optional(),
+  lang: checkoutLang,
   payment_mode: z.enum(['cash', 'bank_transfer', 'card']).optional(),
   wallet_use: z.coerce.number().finite().min(0).max(1_000_000).optional().default(0),
   coupon_code: z.string().trim().max(64).nullable().optional(),

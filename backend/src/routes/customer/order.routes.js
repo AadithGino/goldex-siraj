@@ -3,23 +3,26 @@ import * as controller from '../../controllers/customer/customer.order.controlle
 import { authenticateCustomer } from '../../middlewares/auth.js'
 import { validate } from '../../middlewares/validate.js'
 import { asyncHandler } from '../../utils/asyncHandler.js'
-import { placeOrderSchema, changePendingPaymentSchema, objectId } from '../../validators/order.validators.js'
+import { placeOrderSchema, changePendingPaymentSchema, objectId, tabbyEligibilitySchema } from '../../validators/order.validators.js'
 import { z } from 'zod'
 const router = Router()
 router.use(authenticateCustomer)
 router.get('/', asyncHandler(controller.list))
 router.post('/', validate(placeOrderSchema), asyncHandler(controller.place))
+router.post('/tabby/eligibility', validate(tabbyEligibilitySchema), asyncHandler(controller.tabbyEligibility))
 router.post(
   '/:id/online-checkout',
   validate({
     params: z.object({ id: objectId }),
     body: z.object({
       payment_provider: z.enum(['paymob', 'tabby']).optional(),
+      lang: z.enum(['en', 'ar']).optional(),
     }).optional().default({}),
   }),
   asyncHandler(controller.onlineCheckout),
 )
 router.post('/:id/payment-method', validate(changePendingPaymentSchema), asyncHandler(controller.changePaymentMethod))
+router.post('/:id/tabby-abandon', validate({ params: z.object({ id: objectId }) }), asyncHandler(controller.tabbyAbandon))
 router.post(
   '/:id/online-confirm',
   validate({
