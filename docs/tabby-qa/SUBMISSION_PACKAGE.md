@@ -1,7 +1,7 @@
 # Tabby QA — ready-to-send package
 
 **Generated:** 2026-09-28  
-**Merchant code:** `tgjllc`  
+**Merchant code:** `TLAE`  
 **Currency / country:** AED · United Arab Emirates  
 
 ---
@@ -31,7 +31,7 @@ cd docs/tabby-qa/screenshots && zip -r ../tabby-qa-screenshots.zip *.png
 
 **Before Tabby’s QA session:** deploy the frontend build to `https://goldex.retailkerala.com` (or give Tabby a stable HTTPS preview URL), set `VITE_API_URL=https://goldex.retailkerala.com/api/v1`, and configure on the API host:
 
-- `TABBY_ENABLED=true`, test keys, `TABBY_MERCHANT_CODE=tgjllc`
+- `TABBY_ENABLED=true`, test keys, `TABBY_MERCHANT_CODE=TLAE`
 - `API_PUBLIC_URL=https://goldex.retailkerala.com` (origin only, no `/api/v1`)
 - `TABBY_WEBHOOK_SECRET=<strong-random>`
 
@@ -99,7 +99,7 @@ Use **`EMAIL_REPLY_READY.md`** (copy-paste to Mariia).
 
 ## Blockers to resolve before sending
 
-1. **Tabby API 401** on session create — confirm `sk_test_…` / `pk_test_…` and merchant code `tgjllc` with Tabby.
+1. **Tabby API 401** on session create — confirm `sk_test_…` / `pk_test_…` and merchant code `TLAE` with Tabby.
 2. **Deploy storefront** to a public HTTPS URL Tabby can open.
 3. **Set `TABBY_WEBHOOK_SECRET`** on production API and register webhook + header in Tabby.
 4. **Run 5 HPP scenarios** and fill payment IDs in `TEST_RUN_LOG_FILLED.md`.

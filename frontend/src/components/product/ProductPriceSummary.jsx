@@ -4,7 +4,7 @@ import { usePriceBreakup } from '@/hooks/usePriceBreakup'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProductPaymentOptions } from '@/components/product/ProductPaymentOptions'
 
-export function ProductPriceSummary({ variantId }) {
+export function ProductPriceSummary({ variantId, showPaymentOptions = true }) {
   const { t } = useTranslation('product')
   const { data: breakup, isLoading, error } = usePriceBreakup(variantId)
   const hasFixedPrice = breakup?.fixed_price != null || breakup?.price_override != null
@@ -41,7 +41,9 @@ export function ProductPriceSummary({ variantId }) {
           {` · ${t('includesVatNote')}`}
         </p>
       )}
-      <ProductPaymentOptions price={breakup.display_total ?? breakup.total} />
+      {showPaymentOptions ? (
+        <ProductPaymentOptions price={breakup.display_total ?? breakup.total} />
+      ) : null}
     </div>
   )
 }

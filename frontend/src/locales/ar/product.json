@@ -41,6 +41,17 @@
   "priceUnavailable": "السعر غير متاح",
   "outOfStock": "غير متوفر",
   "addToBag": "أضف للسلة",
+  "whatsappEnquiry": {
+    "button": "استفسار عبر واتساب",
+    "buttonShort": "واتساب",
+    "intro": "مرحباً، أود الاستفسار عن هذا المنتج.",
+    "product": "المنتج",
+    "variant": "الخيار",
+    "sku": "رمز SKU",
+    "price": "السعر",
+    "image": "الصورة",
+    "link": "الرابط"
+  },
   "addToWishlist": "أضف للمفضلة",
   "inWishlist": "في المفضلة",
   "removeWishlistAria": "إزالة من المفضلة",

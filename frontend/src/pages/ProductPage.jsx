@@ -12,12 +12,14 @@ import {
 import { getDefaultVariant, useProductBySlug } from "@/hooks/useProducts";
 import { ProductImageGallery } from "@/components/product/ProductImageGallery";
 import { ProductPriceSummary } from "@/components/product/ProductPriceSummary";
+import { ProductPaymentOptions } from "@/components/product/ProductPaymentOptions";
+import { usePriceBreakup } from "@/hooks/usePriceBreakup";
 import { ProductPriceBreakupPanel } from "@/components/product/ProductPriceBreakupPanel";
 import { MobileProductActionBar } from "@/components/product/MobileProductActionBar";
 import { CertificateBadges } from "@/components/product/CertificateBadges";
 import { ReviewList } from "@/components/product/ReviewList";
 import { ReviewForm } from "@/components/product/ReviewForm";
-import { AddToBagButton } from "@/components/product/AddToBagButton";
+import { ProductBuyActions } from "@/components/product/ProductBuyActions";
 import { WishlistButton } from "@/components/product/WishlistButton";
 import {
   ProductJewelleryDetails,
@@ -64,6 +66,7 @@ export function ProductPage() {
   const activeVariantId = selectedVariantId || defaultVariant?.id;
   const activeVariant = variants.find((v) => v.id === activeVariantId);
   const certs = certificatesForVariant(product?.certificates, activeVariantId);
+  const { data: priceBreakup } = usePriceBreakup(activeVariantId);
 
   const metalBadge = useMemo(
     () =>
@@ -237,26 +240,22 @@ export function ProductPage() {
             )}
 
             {productShortDesc && (
-              <p className="mt-3 text-sm leading-relaxed text-muted">
+              <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-muted lg:line-clamp-3">
                 {productShortDesc}
               </p>
             )}
 
             {/* Price */}
-            <div className="mt-5 border-t border-line pt-5">
-              <ProductPriceSummary variantId={activeVariantId} />
-              <button
-                type="button"
-                onClick={() => scrollToId("price-breakup")}
-                className="mt-2 text-xs font-semibold text-gold hover:underline"
-              >
-                {t("product:priceBreakUp")}
-              </button>
+            <div className="mt-4 border-t border-line pt-4 lg:mt-5 lg:pt-5">
+              <ProductPriceSummary
+                variantId={activeVariantId}
+                showPaymentOptions={false}
+              />
             </div>
 
             {/* Variant selectors */}
             {showVariantBox && (
-              <div className="mt-4 border-t border-line pt-4">
+              <div className="mt-3 border-t border-line pt-3 lg:mt-4 lg:pt-4">
                 <VariantSizeSelector
                   variants={variants}
                   selectedId={activeVariantId}
@@ -266,16 +265,33 @@ export function ProductPage() {
               </div>
             )}
 
-            {/* Add to bag */}
-            <div className="mt-6">
-              <AddToBagButton
+            {/* Add to bag — above payment promos so CTAs stay in view */}
+            <div className="mt-4 lg:mt-5">
+              <ProductBuyActions
                 variantId={activeVariantId}
                 customizationRequest={
                   product.is_customizable ? customizationRequest : undefined
                 }
-                className="w-full min-h-[52px] rounded-sm text-base font-semibold"
+                product={product}
+                productName={productName}
+                variant={activeVariant}
+                isOutOfStock={isOutOfStock}
               />
+              <button
+                type="button"
+                onClick={() => scrollToId("price-breakup")}
+                className="mt-3 block w-full text-center text-xs font-semibold text-gold hover:underline"
+              >
+                {t("product:priceBreakUp")}
+              </button>
             </div>
+
+            {priceBreakup && (
+              <ProductPaymentOptions
+                className="mt-4 lg:mt-5"
+                price={priceBreakup.display_total ?? priceBreakup.total}
+              />
+            )}
 
             {/* Certificates strip */}
             {certs.length > 0 && (
@@ -411,6 +427,9 @@ export function ProductPage() {
       </div>
 
       <MobileProductActionBar
+        product={product}
+        productName={productName}
+        variant={activeVariant}
         variantId={activeVariantId}
         customizationRequest={
           product.is_customizable ? customizationRequest : undefined

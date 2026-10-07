@@ -1,0 +1,57 @@
+{
+  "merchant_code": "TLAE",
+  "lang": "en",
+  "payment": {
+    "amount": "1250.00",
+    "currency": "AED",
+    "description": "Order GX-10042",
+    "buyer": {
+      "name": "Tabby QA Success",
+      "email": "otp.success@tabby.ai",
+      "phone": "+971500000001"
+    },
+    "shipping_address": {
+      "address": "Near Union Metro, Al Rigga",
+      "city": "Dubai",
+      "zip": "00000",
+      "country": "AE"
+    },
+    "order": {
+      "reference_id": "674a1b2c3d4e5f6789012345_1735123456789",
+      "updated_at": "2026-09-28T10:30:00.000Z",
+      "tax_amount": "59.52",
+      "shipping_amount": "0.00",
+      "discount_amount": "0.00",
+      "items": [
+        {
+          "title": "22K Gold Ring",
+          "description": "EAR00487",
+          "quantity": 1,
+          "unit_price": "1190.48",
+          "reference_id": "6ab92d7ce8c6da133d3cc243",
+          "category": "Jewellery",
+          "image_url": "https://groquik-swarnagrow-media-prod.s3.ap-south-1.amazonaws.com/jewellers/goldex1-jewellery/public/product-images/example.jpg",
+          "product_url": "https://goldex.retailkerala.com/product/ear00487"
+        }
+      ]
+    },
+    "buyer_history": {
+      "registered_since": "2025-03-01T08:00:00.000Z",
+      "loyalty_level": 0,
+      "wishlist_count": 0,
+      "is_social_networks_connected": false,
+      "is_phone_number_verified": true,
+      "is_email_verified": true
+    },
+    "order_history": [],
+    "meta": {
+      "customer": "6aba5d448a93ad244fc8f83d",
+      "order_id": "GX-10042"
+    }
+  },
+  "merchant_urls": {
+    "success": "https://goldex.retailkerala.com/orders/674a1b2c3d4e5f6789012345?payment=return&provider=tabby",
+    "cancel": "https://goldex.retailkerala.com/checkout?tabby=cancelled&order=674a1b2c3d4e5f6789012345",
+    "failure": "https://goldex.retailkerala.com/checkout?tabby=failed&order=674a1b2c3d4e5f6789012345"
+  }
+}

@@ -41,6 +41,17 @@
   "priceUnavailable": "Price unavailable",
   "outOfStock": "Out of stock",
   "addToBag": "Add to Bag",
+  "whatsappEnquiry": {
+    "button": "Enquire on WhatsApp",
+    "buttonShort": "WhatsApp",
+    "intro": "Hello, I would like to enquire about this product.",
+    "product": "Product",
+    "variant": "Variant",
+    "sku": "SKU",
+    "price": "Price",
+    "image": "Image",
+    "link": "Link"
+  },
   "addToWishlist": "Add to Wishlist",
   "inWishlist": "In Wishlist",
   "removeWishlistAria": "Remove from wishlist",

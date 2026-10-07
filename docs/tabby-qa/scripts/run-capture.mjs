@@ -135,7 +135,7 @@ async function main() {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const page = await context.newPage()
 
-  const results = { scenarios: {}, merchantCode: process.env.TABBY_MERCHANT_CODE || 'tgjllc' }
+const results = { scenarios: {}, merchantCode: process.env.TABBY_MERCHANT_CODE || 'TLAE' }
 
   for (const lang of ['en', 'ar']) {
     const prefix = lang === 'en' ? '01-en' : '01-ar'

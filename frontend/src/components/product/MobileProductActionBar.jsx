@@ -1,9 +1,16 @@
 import { useTranslation } from 'react-i18next'
-import { AddToBagButton } from '@/components/product/AddToBagButton'
+import { ProductBuyActions } from '@/components/product/ProductBuyActions'
 import { usePriceBreakup } from '@/hooks/usePriceBreakup'
 import { formatINR } from '@/lib/pricing'
 
-export function MobileProductActionBar({ variantId, customizationRequest, isOutOfStock = false }) {
+export function MobileProductActionBar({
+  product,
+  productName,
+  variant,
+  variantId,
+  customizationRequest,
+  isOutOfStock = false,
+}) {
   const { t } = useTranslation(['product', 'checkout'])
   const { data: breakup } = usePriceBreakup(variantId)
 
@@ -15,7 +22,7 @@ export function MobileProductActionBar({ variantId, customizationRequest, isOutO
       style={{ bottom: 'calc(var(--mobile-nav-height) + env(safe-area-inset-bottom))' }}
     >
       <div className="mx-auto flex w-full max-w-7xl items-center gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-[0.85]">
           {price != null ? (
             <p className="truncate font-display text-xl leading-none text-gold">{formatINR(price)}</p>
           ) : (
@@ -26,13 +33,16 @@ export function MobileProductActionBar({ variantId, customizationRequest, isOutO
           </p>
         </div>
 
-        <AddToBagButton
-          variantId={isOutOfStock ? null : variantId}
+        <ProductBuyActions
+          className="min-w-0 flex-[1.65]"
+          compact
+          variantId={variantId}
           customizationRequest={customizationRequest}
-          className="min-h-[48px] rounded-xl px-5 text-sm font-semibold"
-        >
-          {isOutOfStock ? t('product:outOfStock') : t('product:addToBag')}
-        </AddToBagButton>
+          product={product}
+          productName={productName}
+          variant={variant}
+          isOutOfStock={isOutOfStock}
+        />
       </div>
     </div>
   )

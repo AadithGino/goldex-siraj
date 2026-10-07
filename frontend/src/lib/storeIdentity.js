@@ -14,3 +14,13 @@ export const STORE_WHATSAPP_DISPLAY = '+971565084747'
 export function getStoreLegalName(lang) {
   return lang === 'ar' ? STORE_LEGAL_NAME_AR : STORE_LEGAL_NAME_EN
 }
+
+/** Digits-only WhatsApp for wa.me; settings override, else footer default. */
+export function resolveStoreWhatsAppE164(settings) {
+  const raw = settings?.whatsapp_number
+  if (raw != null && String(raw).trim() !== '') {
+    const digits = String(raw).replace(/\D/g, '')
+    if (digits) return digits
+  }
+  return STORE_WHATSAPP_E164
+}
