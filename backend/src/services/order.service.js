@@ -408,6 +408,7 @@ export async function placeOrder(customerId, input) {
             const tabby = await createTabbyCheckout({ order, customer, reference, lang: input.lang, returnTo: 'checkout', session })
             order.tabbyCheckoutId = tabby.checkoutId
             order.tabbyPaymentId = tabby.paymentId
+            order.tabbyPaymentLinkedAt = new Date()
             order.tabbyReference = tabby.reference
             order.tabbyCartRetained = true
             order.paymentProvider = 'tabby'
@@ -951,6 +952,7 @@ export async function createTabbyCheckoutForOrder(customerId, orderId, { lang } 
   })
   order.tabbyCheckoutId = tabby.checkoutId
   order.tabbyPaymentId = tabby.paymentId
+  order.tabbyPaymentLinkedAt = new Date()
   order.tabbyReference = tabby.reference
   order.paymentProvider = 'tabby'
   await order.save()

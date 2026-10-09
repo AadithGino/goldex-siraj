@@ -14,11 +14,12 @@ import { PolicyLinks } from '@/components/legal/PolicyLinks'
 import { pickField } from '@/lib/contentLocale'
 import { getEmirateLabel } from '@/lib/i18nLabels'
 import { branchMapsUrl, formatBranchAddressLines } from '@/lib/storeBranches'
+import { TABBY_LOGO_SRC } from '@/lib/tabbyBrand'
 
 const PAYMENT_METHODS = [
   { key: 'visa', src: '/payments/visa.png', labelKey: 'nav:footer.payments.visa' },
   { key: 'mastercard', src: '/payments/mastercard.png', labelKey: 'nav:footer.payments.mastercard' },
-  { key: 'tabby', src: '/payments/tabby.png', labelKey: 'nav:footer.payments.tabby' },
+  { key: 'tabby', src: TABBY_LOGO_SRC, labelKey: 'nav:footer.payments.tabby' },
   { key: 'tamara', src: '/payments/tamara.png', labelKey: 'nav:footer.payments.tamara' },
   { key: 'amex', src: '/payments/amex.png', labelKey: 'nav:footer.payments.amex' },
   { key: 'cod', src: '/payments/cod.png', labelKey: 'nav:footer.payments.cod' },

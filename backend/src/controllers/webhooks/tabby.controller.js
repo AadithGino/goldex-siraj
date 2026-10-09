@@ -48,6 +48,7 @@ export async function handleWebhook(req, res) {
 
   const alreadySettled = order.paymentStatus === 'paid' && order.tabbyCaptureStatus === 'captured'
   res.status(200).json({ success: true })
+  await Order.updateOne({ _id: order._id }, { $set: { tabbyWebhookReceivedAt: new Date() } })
   if (alreadySettled) return
 
   finalizeTabbyPayment(order._id, { paymentId, source: 'webhook' })

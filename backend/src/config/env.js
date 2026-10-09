@@ -12,6 +12,8 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   MONGODB_URI: z.string().min(1).default('mongodb://127.0.0.1:27017/goldex'),
   CLIENT_ORIGINS: z.string().default('http://localhost:5173'),
+  /** Public SPA origin for payment return URLs (Tabby merchant_urls, product_url). */
+  STOREFRONT_URL: z.string().url().optional(),
   JWT_ACCESS_SECRET: z.string().min(32).default('development-access-secret-change-me-now'),
   JWT_REFRESH_SECRET: z.string().min(32).default('development-refresh-secret-change-me'),
   JWT_ACCESS_TTL: z.string().default('15m'),

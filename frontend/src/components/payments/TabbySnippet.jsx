@@ -43,10 +43,11 @@ function TabbyWidget({ kind, price, source, className }) {
   const { i18n } = useTranslation()
   const lang = getContentLang(i18n.language)
   const { enabled, publicKey, merchantCode } = useTabbySnippetConfig()
-  // Must not equal "TabbyPromo"/"TabbyCard": element ids on window shadow the Tabby constructors.
-  const containerId = `goldex-tabby-${kind}-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
+  const instance = useId().replace(/[^a-zA-Z0-9_-]/g, '')
+  const containerId = `goldex-tabby-${kind}-${lang}-${instance}`
   const amount = Number(price)
   const hasAmount = Number.isFinite(amount) && amount > 0
+  const amountKey = amount.toFixed(2)
 
   useEffect(() => {
     if (!enabled || !hasAmount) return undefined
@@ -60,9 +61,9 @@ function TabbyWidget({ kind, price, source, className }) {
         if (!container || typeof Widget !== 'function') return
         container.innerHTML = ''
         new Widget({
-          selector: `#${containerId}`,
+          selector: `#${CSS.escape(containerId)}`,
           currency: 'AED',
-          price: amount.toFixed(2),
+          price: amountKey,
           lang,
           ...(kind === 'promo' ? { source } : {}),
           shouldInheritBg: false,
@@ -74,10 +75,16 @@ function TabbyWidget({ kind, price, source, className }) {
     return () => {
       cancelled = true
     }
-  }, [enabled, hasAmount, amount, lang, source, kind, containerId, publicKey, merchantCode])
+  }, [enabled, hasAmount, amountKey, lang, source, kind, containerId, publicKey, merchantCode])
 
   if (!enabled || !hasAmount) return null
-  return <div id={containerId} className={cn('w-full min-w-0 max-w-full overflow-hidden', className)} />
+  return (
+    <div
+      key={`${lang}-${amountKey}-${kind}`}
+      id={containerId}
+      className={cn('w-full min-w-0 max-w-full overflow-hidden', className)}
+    />
+  )
 }
 
 /** Product / cart split-price messaging (`TabbyPromo`). */

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { config } from '../config/env.js'
+import { resolveStorefrontOrigin } from '../utils/storefrontOrigin.js'
 import { logger } from '../config/logger.js'
 import { Product } from '../models/catalog.models.js'
 import { Order, WishlistItem } from '../models/commerce.models.js'
@@ -137,10 +138,7 @@ export function tabbyRejectedError(reason) {
   )
 }
 
-function assertTabbyBuyer({ email, phone, name }) {
-  if (!email) {
-    throw new AppError(422, 'TABBY_EMAIL_REQUIRED', 'Add an email address to your profile to pay with Tabby')
-  }
+function assertTabbyBuyer({ phone, name }) {
   if (!phone) {
     throw new AppError(422, 'TABBY_PHONE_REQUIRED', 'A mobile number is required to pay with Tabby')
   }
@@ -251,7 +249,7 @@ async function loadItemCatalogMeta(items, session) {
 }
 
 function buildSessionItems(order, catalogMeta) {
-  const appOrigin = config.clientOrigins[0]
+  const appOrigin = resolveStorefrontOrigin()
   return (order.items || []).map((item) => {
     const qty = Math.max(1, Number(item.qty) || 1)
     const product = catalogMeta.get(String(item.productId)) || {}
@@ -275,7 +273,7 @@ function buildSessionItems(order, catalogMeta) {
 }
 
 export function buildTabbyMerchantUrls(orderId, { returnTo = 'checkout' } = {}) {
-  const appOrigin = config.clientOrigins[0] || 'http://localhost:5173'
+  const appOrigin = resolveStorefrontOrigin()
   const success = `${appOrigin}/orders/${orderId}?payment=return&provider=tabby`
   if (returnTo === 'order') {
     return {
@@ -324,7 +322,7 @@ export async function createTabbyCheckout({ order, customer, reference = null, l
       amount: money(amount),
       currency: TABBY_CURRENCY,
       description: `Order ${order.orderNumber || order.id}`,
-      buyer,
+      buyer: compact(buyer),
       shipping_address: shippingAddress,
       order: {
         reference_id: orderRef,
@@ -376,7 +374,6 @@ export async function runTabbyPrescoring({ amount, customer, address, lang = 'en
   if (value <= 0) return { available: true, reason: null }
 
   const buyer = buildTabbyBuyer({ customer, address })
-  if (!buyer.email) return { available: false, reason: 'email_required' }
   if (!buyer.phone) return { available: false, reason: 'phone_required' }
 
   try {

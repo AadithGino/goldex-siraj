@@ -79,6 +79,13 @@ export async function reconcilePendingOnlinePayments({ limit = 25 } = {}) {
       paymentMethod: 'online',
       paymentStatus: 'pending',
       status: { $nin: ['cancelled', 'returned'] },
+      $or: [
+        { tabbyPaymentId: { $in: [null, ''] } },
+        { paymentProvider: { $ne: 'tabby' } },
+        { tabbyPaymentStatus: { $exists: false } },
+        { tabbyPaymentStatus: null },
+        { tabbyPaymentStatus: { $nin: ['REJECTED', 'EXPIRED', 'CLOSED'] } },
+      ],
     })
       .sort({ updatedAt: 1 })
       .limit(batchSize),

@@ -2,13 +2,11 @@ import { useTranslation } from 'react-i18next'
 import { CreditCard } from 'lucide-react'
 import { TabbyPromoSnippet } from '@/components/payments/TabbySnippet'
 import { useStoreSettings } from '@/hooks/useStoreSettings'
-import { formatAED } from '@/lib/pricing'
 import { getEnabledStorePaymentMethods } from '@/lib/storePaymentMethods'
-import { tabbyInstallmentEstimate } from '@/lib/tabby'
 import { cn } from '@/lib/utils'
 
 /**
- * Tabby split-pay estimate + official promo snippet, plus checkout method badges.
+ * Official Tabby on-site snippet plus checkout method badges (no duplicate installment copy).
  * @param {'default'|'compact'} layout — PDP vs cart sidebar / quick view
  * @param {'product'|'cart'} tabbySource — TabbyPromo context
  */
@@ -25,7 +23,6 @@ export function ProductPaymentOptions({
   const hasPrice = Number.isFinite(amount) && amount > 0
   const methods = getEnabledStorePaymentMethods(settings)
   const tabbyOn = settings?.online_checkout_enabled && settings?.tabby_configured
-  const installment = tabbyOn && hasPrice ? tabbyInstallmentEstimate(amount) : null
   const otherMethods = methods.filter((m) => !(m.key === 'tabby' && tabbyOn))
 
   if (!hasPrice || (!tabbyOn && methods.length === 0)) return null
@@ -54,40 +51,16 @@ export function ProductPaymentOptions({
         </>
       )}
 
-      {tabbyOn && installment != null && (
-        <div className={cn('space-y-2', compact ? 'mt-2' : 'mt-3')}>
-          <div className="flex items-start gap-2">
-            <img
-              src="/payments/tabby.png"
-              alt={t('checkout:tabby.logoAlt')}
-              className={cn('shrink-0', compact ? 'mt-0.5 h-5 w-auto' : 'mt-0.5 h-6 w-auto')}
-            />
-            <div className="min-w-0 flex-1">
-              {!compact && (
-                <p className="text-sm font-semibold text-navy">
-                  {t('checkout:tabby.methodName')}
-                </p>
-              )}
-              <p className={cn('leading-relaxed text-muted', compact ? 'text-[11px]' : 'mt-0.5 text-xs')}>
-                {compact
-                  ? t('product:tabbyInstallmentCompact', { amount: formatAED(installment) })
-                  : t('product:tabbyInstallmentLine', { amount: formatAED(installment) })}
-              </p>
-              {!compact && (
-                <p className="mt-1 text-[11px] leading-relaxed text-muted">
-                  {t('product:tabbyInstallmentNote', { total: formatAED(amount) })}
-                </p>
-              )}
-            </div>
-          </div>
-          <TabbyPromoSnippet price={amount} source={tabbySource} className={compact ? 'pt-0' : 'pt-1'} />
+      {tabbyOn && (
+        <div className={cn(compact ? 'mt-2' : 'mt-3')}>
+          <TabbyPromoSnippet price={amount} source={tabbySource} />
         </div>
       )}
 
       {otherMethods.length > 0 && (
         <div
           className={cn(
-            tabbyOn && installment != null && 'border-t border-line',
+            tabbyOn && 'border-t border-line',
             compact ? 'mt-2 pt-2' : 'mt-4 pt-3',
           )}
         >

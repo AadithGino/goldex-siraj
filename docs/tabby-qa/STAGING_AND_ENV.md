@@ -9,7 +9,7 @@ Complete this **before** QA screenshots and test runs.
 | Platform | **Website only** (responsive SPA; no native iOS/Android app) |
 | Countries / currency | **UAE**, **AED** |
 | Checkout | **Registered customers only** (OTP login); no guest checkout |
-| Staging storefront URL | _Fill:_ e.g. `https://goldex.retailkerala.com` or Netlify preview |
+| Storefront URL | `https://www.goldexjewellery.ae` |
 | Staging API URL | _Fill:_ e.g. `https://goldex.retailkerala.com/api/v1` (must match `VITE_API_URL`) |
 | Merchant code(s) | _Fill from Tabby:_ `TABBY_MERCHANT_CODE` |
 

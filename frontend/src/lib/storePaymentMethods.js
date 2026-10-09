@@ -1,6 +1,8 @@
+import { TABBY_LOGO_SRC } from '@/lib/tabbyBrand'
+
 /** Logo assets and i18n keys for storefront payment badges (PDP, footer, etc.). */
 export const PAYMENT_BADGES = {
-  tabby: { key: 'tabby', src: '/payments/tabby.png', labelKey: 'nav:footer.payments.tabby' },
+  tabby: { key: 'tabby', src: TABBY_LOGO_SRC, labelKey: 'nav:footer.payments.tabby' },
   visa: { key: 'visa', src: '/payments/visa.png', labelKey: 'nav:footer.payments.visa' },
   mastercard: { key: 'mastercard', src: '/payments/mastercard.png', labelKey: 'nav:footer.payments.mastercard' },
   amex: { key: 'amex', src: '/payments/amex.png', labelKey: 'nav:footer.payments.amex' },

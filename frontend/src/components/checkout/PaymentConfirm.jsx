@@ -11,6 +11,7 @@ import { useTabbyEligibility } from '@/hooks/useTabby'
 import { cn } from '@/lib/utils'
 import { getContentLang } from '@/lib/contentLocale'
 import { tabbyUnavailableMessage } from '@/lib/tabby'
+import { TABBY_LOGO_SRC } from '@/lib/tabbyBrand'
 import { useStoreSettings } from '@/hooks/useStoreSettings'
 import { PolicyLinks } from '@/components/legal/PolicyLinks'
 
@@ -67,7 +68,7 @@ export function PaymentConfirm({
       {
         id: 'online_tabby',
         label: t('checkout:tabby.methodName'),
-        logo: '/payments/tabby.png',
+        logo: TABBY_LOGO_SRC,
         logoAlt: t('checkout:tabby.logoAlt'),
         note: tabbyChecking
           ? t('checkout:tabby.checking')
@@ -172,12 +173,6 @@ export function PaymentConfirm({
           )
         })}
       </div>
-
-      {tabbyUnavailableReason === 'email_required' && (
-        <Link to="/account" className="inline-block text-xs font-semibold text-gold hover:underline">
-          {t('checkout:tabby.goToProfile')}
-        </Link>
-      )}
 
       {allDisabled && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">

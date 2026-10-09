@@ -105,6 +105,10 @@ const orderSchema = new Schema({
   paymobSpecialReference: String,
   tabbyCheckoutId: String,
   tabbyPaymentId: String,
+  tabbyPaymentStatus: String,
+  tabbyPaymentLinkedAt: Date,
+  tabbyWebhookReceivedAt: Date,
+  tabbyFallbackRetrieveDone: { type: Boolean, default: false },
   tabbyReference: String,
   /** true when placed from checkout with Tabby: the bag is kept until Tabby confirms payment. */
   tabbyCartRetained: { type: Boolean, default: false },

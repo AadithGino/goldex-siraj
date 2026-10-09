@@ -168,10 +168,13 @@ describe('Tabby checkout session', () => {
     expect(session.payment.amount).toBe(Number(order.amountDue).toFixed(2))
   })
 
-  it('refuses Tabby without a customer email instead of sending a placeholder', async () => {
+  it('omits buyer.email when the customer profile has no email', async () => {
     await Customer.updateOne({ _id: customer.id }, { $unset: { email: 1 } })
-    await expect(placeTabbyOrder()).rejects.toMatchObject({ code: 'TABBY_EMAIL_REQUIRED' })
-    expect(tabby.sessions).toHaveLength(0)
+    const order = await placeTabbyOrder('tabby-no-email')
+    const session = tabby.sessions.at(-1)
+    expect(session.payment.buyer.email).toBeUndefined()
+    expect(session.payment.buyer).toMatchObject({ name: 'Tabby Buyer', phone: '+971500000001' })
+    expect(order.checkoutUrl).toContain('checkout.tabby.ai')
   })
 
   it('surfaces a rejected session as TABBY_REJECTED and rolls the order back', async () => {

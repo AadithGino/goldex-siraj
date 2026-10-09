@@ -10,7 +10,7 @@ Thank you for the checklist and testing guidelines. We completed a self-review a
 - **Country / currency:** United Arab Emirates, **AED**.
 - **Checkout:** **Registered users only** (phone OTP). Guest checkout is not offered.
 - **Staging API:** https://goldex.retailkerala.com/api/v1  
-- **Storefront for QA:** We are finalizing deployment of the SPA to **https://goldex.retailkerala.com** (the API is already live on this host). Until that cutover, we validated the Tabby UI on our dev storefront against the same catalog and payment stack; screenshots are attached from that environment.
+- **Storefront for QA:** **https://www.goldexjewellery.ae**
 - **Merchant code:** **TLAE**
 
 **Test accounts for your team**

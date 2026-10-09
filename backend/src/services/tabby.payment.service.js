@@ -14,6 +14,13 @@ import {
 } from './tabby.service.js'
 
 const STALE_CAPTURE_CLAIM_MS = 2 * 60 * 1000
+const TABBY_WEBHOOK_GRACE_MS = 30 * 60 * 1000
+const TABBY_TERMINAL_STATUSES = new Set(['REJECTED', 'EXPIRED', 'CLOSED'])
+
+async function persistTabbyPaymentStatus(orderId, status) {
+  if (!status || !TABBY_TERMINAL_STATUSES.has(status)) return
+  await Order.updateOne({ _id: orderId }, { $set: { tabbyPaymentStatus: status } })
+}
 
 function assertPaymentBelongsToOrder(order, payment, requestedPaymentId) {
   const refOrderId = resolveGoldexOrderIdFromTabbyReference(payment.orderReference)
@@ -111,6 +118,22 @@ export async function finalizeTabbyPayment(orderId, { paymentId = null, source =
   const id = paymentId || order.tabbyPaymentId
   if (!id) return { outcome: 'pending', order }
 
+  const fromReconciliation = source === 'reconciliation'
+  if (fromReconciliation && order.tabbyPaymentStatus && TABBY_TERMINAL_STATUSES.has(order.tabbyPaymentStatus)) {
+    return { outcome: order.tabbyPaymentStatus.toLowerCase(), order }
+  }
+  if (fromReconciliation && order.paymentStatus === 'pending') {
+    const linkedAt = order.tabbyPaymentLinkedAt || order.placedAt || order.createdAt
+    const ageMs = Date.now() - new Date(linkedAt).getTime()
+    if (!order.tabbyWebhookReceivedAt && ageMs < TABBY_WEBHOOK_GRACE_MS) {
+      return { outcome: 'pending', order, reason: 'awaiting_webhook' }
+    }
+    if (order.tabbyFallbackRetrieveDone) {
+      return { outcome: 'pending', order, reason: 'fallback_retrieve_done' }
+    }
+    await Order.updateOne({ _id: order._id }, { $set: { tabbyFallbackRetrieveDone: true } })
+  }
+
   const raw = await retrieveTabbyPayment(id)
   const payment = extractTabbyPaymentData(raw)
   if (!payment.id) return { outcome: 'pending', order }
@@ -118,9 +141,11 @@ export async function finalizeTabbyPayment(orderId, { paymentId = null, source =
 
   if (payment.status === 'CREATED') return { outcome: 'pending', order }
   if (payment.status === 'REJECTED' || payment.status === 'EXPIRED') {
+    await persistTabbyPaymentStatus(order._id, payment.status)
     return { outcome: payment.status.toLowerCase(), order }
   }
   if (payment.status === 'CLOSED' && !(payment.capturedAmount > 0)) {
+    await persistTabbyPaymentStatus(order._id, 'CLOSED')
     return { outcome: 'closed_uncaptured', order }
   }
   if (payment.status !== 'AUTHORIZED' && payment.status !== 'CLOSED') {
