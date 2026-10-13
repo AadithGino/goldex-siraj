@@ -44,6 +44,8 @@ process.on('uncaughtException', (error) => {
 })
 
 start().catch((error) => {
-  logger.fatal({ error }, 'Startup failed')
+  const message = error?.message || String(error)
+  logger.fatal({ err: message, error }, 'Startup failed')
+  console.error(`Startup failed: ${message}`)
   process.exit(1)
 })

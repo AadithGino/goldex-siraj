@@ -22,7 +22,19 @@ const secretKey = process.env.TABBY_SECRET_KEY
 const merchantCode = process.env.TABBY_MERCHANT_CODE
 const headerName = process.env.TABBY_WEBHOOK_HEADER_NAME || 'X-Goldex-Tabby-Auth'
 const webhookSecret = process.env.TABBY_WEBHOOK_SECRET || crypto.randomBytes(24).toString('hex')
-const apiOrigin = (process.env.API_PUBLIC_URL || 'https://goldex.retailkerala.com').replace(/\/+$/, '').replace(/\/api\/v1$/, '')
+function resolveWebhookApiOrigin() {
+  const raw = (process.env.TABBY_WEBHOOK_URL || process.env.API_PUBLIC_URL || 'https://goldex.retailkerala.com')
+    .replace(/\/+$/, '')
+    .replace(/\/api\/v1$/i, '')
+  if (/localhost|127\.0\.0\.1/i.test(raw)) {
+    throw new Error(
+      'Webhook URL must be public HTTPS. Set API_PUBLIC_URL=https://goldex.retailkerala.com (or TABBY_WEBHOOK_URL) — not localhost.',
+    )
+  }
+  return raw
+}
+
+const apiOrigin = resolveWebhookApiOrigin()
 const webhookUrl = `${apiOrigin}/api/v1/webhooks/tabby`
 
 function headers() {
@@ -43,6 +55,7 @@ async function listWebhooks() {
 }
 
 async function registerWebhook() {
+  console.log('Registering webhook:', webhookUrl)
   const payload = {
     url: webhookUrl,
     header: { title: headerName, value: webhookSecret },
