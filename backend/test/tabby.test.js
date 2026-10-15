@@ -8,7 +8,7 @@ import { Address, CartItem, Order, WalletTransaction } from '../src/models/comme
 import { GoldRate } from '../src/models/rate.models.js'
 import * as orderService from '../src/services/order.service.js'
 import { abandonTabbyOrder, finalizeTabbyPayment } from '../src/services/tabby.payment.service.js'
-import { verifyTabbyWebhookAuth } from '../src/services/tabby.service.js'
+import { loadTabbyCustomerContext, verifyTabbyWebhookAuth } from '../src/services/tabby.service.js'
 
 let mongoServer
 let customer
@@ -150,6 +150,85 @@ async function placeTabbyOrder(key = 'tabby-1') {
     idempotency_key: key,
   })
 }
+
+describe('Tabby buyer_history', () => {
+  it('sets loyalty_level to paid order count (not only delivered)', async () => {
+    const shipTo = {
+      recipientName: address.recipientName,
+      phone: address.phone,
+      line1: address.line1,
+      city: address.city,
+      state: address.state,
+      country: address.country,
+    }
+    for (let i = 0; i < 3; i += 1) {
+      await Order.create({
+        customerId: customer.id,
+        orderNumber: `ORD-TEST-${i}`,
+        idempotencyKey: `loyalty-${i}`,
+        status: 'processing',
+        paymentStatus: 'paid',
+        paymentMethod: 'online',
+        shipTo,
+        items: [],
+        subtotal: 100,
+        makingChargeTotal: 0,
+        discountAmount: 0,
+        taxAmount: 0,
+        shippingFee: 0,
+        walletApplied: 0,
+        total: 100,
+        amountDue: 100,
+        finalTotal: 100,
+        placedAt: new Date(),
+      })
+    }
+    await Order.create({
+      customerId: customer.id,
+      orderNumber: 'ORD-TEST-DEL',
+      idempotencyKey: 'loyalty-delivered',
+      status: 'delivered',
+      paymentStatus: 'paid',
+      paymentMethod: 'online',
+      shipTo,
+      items: [],
+      subtotal: 50,
+      makingChargeTotal: 0,
+      discountAmount: 0,
+      taxAmount: 0,
+      shippingFee: 0,
+      walletApplied: 0,
+      total: 50,
+      amountDue: 50,
+      finalTotal: 50,
+      placedAt: new Date(),
+    })
+    await Order.create({
+      customerId: customer.id,
+      orderNumber: 'ORD-TEST-PEND',
+      idempotencyKey: 'loyalty-pending',
+      status: 'placed',
+      paymentStatus: 'pending',
+      paymentMethod: 'online',
+      shipTo,
+      items: [],
+      subtotal: 10,
+      makingChargeTotal: 0,
+      discountAmount: 0,
+      taxAmount: 0,
+      shippingFee: 0,
+      walletApplied: 0,
+      total: 10,
+      amountDue: 10,
+      finalTotal: 10,
+      placedAt: new Date(),
+    })
+
+    const { buyerHistory, orderHistory } = await loadTabbyCustomerContext(customer)
+    expect(buyerHistory.loyalty_level).toBe(4)
+    expect(orderHistory.length).toBeGreaterThanOrEqual(4)
+  })
+})
 
 describe('Tabby checkout session', () => {
   it('sends a full, localized payload without placeholders and keeps the bag', async () => {

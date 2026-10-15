@@ -183,6 +183,9 @@ const ORDER_HISTORY_PAYMENT_METHOD = {
   online: 'card',
 }
 
+/** Tabby buyer_history.loyalty_level = successful paid orders (not only delivered). */
+const PAID_LOYALTY_PAYMENT_STATUSES = ['paid', 'partially_refunded']
+
 function historyItem(item) {
   return compact({
     reference_id: nonEmpty(item.sku),
@@ -215,16 +218,19 @@ export async function loadTabbyCustomerContext(customer, { excludeOrderId = null
   const filter = { customerId: customer._id || customer.id }
   if (excludeOrderId) filter._id = { $ne: excludeOrderId }
 
-  const [pastOrders, deliveredCount, wishlistCount] = await Promise.all([
+  const [pastOrders, paidOrderCount, wishlistCount] = await Promise.all([
     Order.find(filter).sort({ placedAt: -1 }).limit(ORDER_HISTORY_LIMIT).session(session).lean(),
-    Order.countDocuments({ ...filter, status: 'delivered' }).session(session),
+    Order.countDocuments({
+      ...filter,
+      paymentStatus: { $in: PAID_LOYALTY_PAYMENT_STATUSES },
+    }).session(session),
     WishlistItem.countDocuments({ customerId: filter.customerId }).session(session),
   ])
 
   const socialLogin = ['google', 'apple'].includes(customer.authProvider)
   const buyerHistory = compact({
     registered_since: isoDate(customer.createdAt),
-    loyalty_level: deliveredCount,
+    loyalty_level: paidOrderCount,
     wishlist_count: wishlistCount,
     is_social_networks_connected: socialLogin,
     is_phone_number_verified: customer.authProvider === 'otp' && Boolean(customer.phone) ? true : undefined,
