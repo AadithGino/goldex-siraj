@@ -31,6 +31,8 @@ const schema = z.object({
   WHATSAPP_TEMPLATE_NAME: z.string().optional(),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
   SHOW_TEST_OTP: envBoolean.default(false),
+  /** Temporary override: allow SHOW_TEST_OTP while WhatsApp delivery is broken. Remove when fixed. */
+  ALLOW_TEST_OTP_IN_PRODUCTION: envBoolean.default(false),
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('uploads'),
   STORAGE_PUBLIC_URL: z.string().url().default('http://localhost:4000/uploads'),
@@ -137,7 +139,9 @@ if (env.NODE_ENV === 'production') {
   if (env.TABBY_ENABLED && !env.TABBY_WEBHOOK_SECRET) {
     throw new Error('Production Tabby webhook secret is required when TABBY_ENABLED=true')
   }
-  if (env.SHOW_TEST_OTP) throw new Error('SHOW_TEST_OTP is forbidden in production')
+  if (env.SHOW_TEST_OTP && !env.ALLOW_TEST_OTP_IN_PRODUCTION) {
+    throw new Error('SHOW_TEST_OTP is forbidden in production (set ALLOW_TEST_OTP_IN_PRODUCTION=true for temporary testing)')
+  }
 }
 
 export const config = Object.freeze({
@@ -154,6 +158,7 @@ export const config = Object.freeze({
     apiKey: env.OTP_PROVIDER_API_KEY,
     providerUrl: env.OTP_PROVIDER_URL,
     showTestOtp: env.SHOW_TEST_OTP,
+    allowTestOtpInProduction: env.ALLOW_TEST_OTP_IN_PRODUCTION,
     whatsappCloud: {
       businessId: firstNonEmpty(env.WHATSAPP_BUSINESS_ID),
       phoneNumber: firstNonEmpty(env.WHATSAPP_PHONE_NUMBER),
@@ -206,7 +211,12 @@ export const config = Object.freeze({
   },
 })
 
-/** Development-only: plaintext OTP may appear in API responses solely under these conditions. */
+/**
+ * Plaintext OTP may appear in API responses when SHOW_TEST_OTP is enabled.
+ * In production this also requires ALLOW_TEST_OTP_IN_PRODUCTION (temporary WhatsApp outage testing).
+ */
 export function canExposeTestOtp(cfg = config) {
-  return cfg.nodeEnv !== 'production' && cfg.otp.provider === 'console' && cfg.otp.showTestOtp === true
+  if (!cfg.otp.showTestOtp) return false
+  if (cfg.nodeEnv === 'production') return cfg.otp.allowTestOtpInProduction === true
+  return true
 }

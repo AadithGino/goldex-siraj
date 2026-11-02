@@ -56,7 +56,7 @@ beforeEach(async () => {
 })
 
 describe('canExposeTestOtp', () => {
-  it('is true only when non-production, console provider, and SHOW_TEST_OTP', async () => {
+  it('is true when SHOW_TEST_OTP is on in non-production (any provider)', async () => {
     const { canExposeTestOtp } = await loadAuthWithEnv({ SHOW_TEST_OTP: 'true', OTP_PROVIDER: 'console', NODE_ENV: 'test' })
     expect(canExposeTestOtp()).toBe(true)
   })
@@ -66,14 +66,15 @@ describe('canExposeTestOtp', () => {
     expect(canExposeTestOtp()).toBe(false)
   })
 
-  it('is false when OTP_PROVIDER=http', async () => {
+  it('is true for non-console providers when SHOW_TEST_OTP is on', async () => {
     const { canExposeTestOtp } = await loadAuthWithEnv({
       SHOW_TEST_OTP: 'true',
       OTP_PROVIDER: 'http',
       OTP_PROVIDER_URL: 'https://otp.example.com/send',
       OTP_PROVIDER_API_KEY: 'test-key',
+      NODE_ENV: 'test',
     })
-    expect(canExposeTestOtp()).toBe(false)
+    expect(canExposeTestOtp()).toBe(true)
   })
 })
 
@@ -118,7 +119,7 @@ describe('development test OTP', () => {
     expect(result).not.toHaveProperty('test_otp')
   })
 
-  it('omits test_otp when OTP_PROVIDER=http', async () => {
+  it('returns test_otp for http provider when SHOW_TEST_OTP is on', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
     try {
@@ -127,12 +128,13 @@ describe('development test OTP', () => {
         OTP_PROVIDER: 'http',
         OTP_PROVIDER_URL: 'https://otp.example.com/send',
         OTP_PROVIDER_API_KEY: 'test-key',
+        NODE_ENV: 'test',
       })
       const result = await sendOtp('+971501111004')
-      expect(result).not.toHaveProperty('test_otp')
+      expect(result.test_otp).toMatch(/^\d{6}$/)
       expect(fetchMock).toHaveBeenCalledOnce()
       const body = JSON.parse(fetchMock.mock.calls[0][1].body)
-      expect(body.code).toMatch(/^\d{6}$/)
+      expect(body.code).toBe(result.test_otp)
     } finally {
       vi.unstubAllGlobals()
     }
@@ -184,5 +186,28 @@ describe('production SHOW_TEST_OTP guard', () => {
     })
     expect(result.status).not.toBe(0)
     expect(`${result.stderr}${result.stdout}`).toMatch(/SHOW_TEST_OTP is forbidden in production/)
+  })
+
+  it('allows SHOW_TEST_OTP when ALLOW_TEST_OTP_IN_PRODUCTION=true', () => {
+    const script = `
+      process.env.NODE_ENV = 'production'
+      process.env.SHOW_TEST_OTP = 'true'
+      process.env.ALLOW_TEST_OTP_IN_PRODUCTION = 'true'
+      process.env.OTP_PROVIDER = 'http'
+      process.env.OTP_PROVIDER_URL = 'https://otp.example.com/send'
+      process.env.OTP_PROVIDER_API_KEY = 'production-key'
+      process.env.JWT_ACCESS_SECRET = ${JSON.stringify('p'.repeat(40))}
+      process.env.JWT_REFRESH_SECRET = ${JSON.stringify('q'.repeat(40))}
+      process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/goldex'
+      process.env.STORAGE_PUBLIC_URL = 'https://example.com/uploads'
+      const { canExposeTestOtp } = await import(${JSON.stringify(path.join(backendRoot, 'src/config/env.js'))})
+      if (!canExposeTestOtp()) throw new Error('expected canExposeTestOtp true')
+    `
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: backendRoot,
+      encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'production' },
+    })
+    expect(result.status).toBe(0)
   })
 })

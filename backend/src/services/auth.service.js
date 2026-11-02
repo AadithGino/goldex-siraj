@@ -265,6 +265,13 @@ async function deliverOtpViaWhatsAppCloud(phone, code) {
   }
 
   logger.error(lastFailure || {}, 'WhatsApp Cloud OTP delivery failed')
+  if (Number(lastFailure?.code) === 190) {
+    throw new AppError(
+      502,
+      'OTP_PROVIDER_AUTH_FAILED',
+      'WhatsApp access token is invalid or expired — renew WHATSAPP_ACCESS_TOKEN in Meta',
+    )
+  }
   if (Number(lastFailure?.code) === 132001) {
     throw new AppError(
       502,
@@ -331,15 +338,25 @@ export async function sendOtp(phoneInput) {
     throw new AppError(429, 'OTP_LIMIT', 'Too many OTP requests; try again later')
   }
 
+  let deliveryFailed = false
   try {
     await deliverOtp(phone, code)
   } catch (error) {
-    // Only invalidate the document we just created — never clear another phone's active challenge.
-    await OtpCode.updateOne(
-      { _id: created._id },
-      { $set: { consumedAt: new Date(), activeChallengeKey: null } },
-    )
-    throw error
+    // Temporary testing: keep the challenge and expose OTP on-screen when SHOW_TEST_OTP is on.
+    if (canExposeTestOtp()) {
+      deliveryFailed = true
+      logger.warn(
+        { err: error, phone, provider: config.otp.provider },
+        'OTP delivery failed; exposing test_otp because SHOW_TEST_OTP is enabled',
+      )
+    } else {
+      // Only invalidate the document we just created — never clear another phone's active challenge.
+      await OtpCode.updateOne(
+        { _id: created._id },
+        { $set: { consumedAt: new Date(), activeChallengeKey: null } },
+      )
+      throw error
+    }
   }
 
   // Re-verify this doc is still the active challenge before returning a code.
@@ -353,7 +370,10 @@ export async function sendOtp(phoneInput) {
   }
 
   const payload = { expires_in: config.otp.ttlSeconds }
-  if (canExposeTestOtp()) payload.test_otp = code
+  if (canExposeTestOtp()) {
+    payload.test_otp = code
+    if (deliveryFailed) payload.delivery = 'failed_shown_on_screen'
+  }
   return payload
 }
 

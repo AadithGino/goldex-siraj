@@ -74,7 +74,7 @@ export function assertProductionConfig(cfg = config) {
   ) {
     throw new Error('Production WhatsApp Cloud OTP configuration is incomplete')
   }
-  if (cfg.otp.showTestOtp) {
+  if (cfg.otp.showTestOtp && !cfg.otp.allowTestOtpInProduction) {
     throw new Error('SHOW_TEST_OTP is forbidden in production')
   }
 }
@@ -115,9 +115,11 @@ function otpConfigStatus(cfg = config) {
     } else if (cfg.otp.provider !== 'http' && cfg.otp.provider !== 'whatsapp_cloud') {
       status.ok = false
       status.reason = 'production_requires_managed_otp_provider'
-    } else if (cfg.otp.showTestOtp) {
+    } else if (cfg.otp.showTestOtp && !cfg.otp.allowTestOtpInProduction) {
       status.ok = false
       status.reason = 'show_test_otp_forbidden'
+    } else if (cfg.otp.showTestOtp && cfg.otp.allowTestOtpInProduction) {
+      status.note = 'temporary_test_otp_exposed_in_production'
     }
   } else if (cfg.otp.provider === 'console') {
     status.note = 'console_otp_ok_non_production'
