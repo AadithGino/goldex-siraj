@@ -77,6 +77,7 @@ const productSchema = new Schema({
 productSchema.index({ status: 1, categoryId: 1, displayOrder: 1, createdAt: -1 })
 productSchema.index({ status: 1, brandId: 1, displayOrder: 1, createdAt: -1 })
 productSchema.index({ status: 1, isFeatured: 1, displayOrder: 1, createdAt: -1 })
+productSchema.index({ status: 1, purity: 1, displayOrder: 1, createdAt: -1 })
 
 const variantSchema = new Schema({
   productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true, index: true }, sku: { type: String, unique: true, sparse: true },
@@ -89,6 +90,7 @@ const variantSchema = new Schema({
 }, { timestamps: true })
 variantSchema.index({ stockQty: 1, lowStockThreshold: 1 })
 variantSchema.index({ productId: 1, isActive: 1, weightGrams: 1 })
+variantSchema.index({ purity: 1, isActive: 1, productId: 1 })
 variantSchema.index(
   { 'metadata.idempotencyKey': 1 },
   {

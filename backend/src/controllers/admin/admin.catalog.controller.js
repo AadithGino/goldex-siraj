@@ -11,6 +11,8 @@ export async function list(req, res) {
     page: result.page,
     limit: result.limit,
     pages: result.pages,
+    next_cursor: result.next_cursor ?? null,
+    has_more: Boolean(result.has_more),
   })
 }
 export async function getOne(req, res) {

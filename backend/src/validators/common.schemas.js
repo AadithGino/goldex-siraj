@@ -125,6 +125,11 @@ export const listFiltersQuerySchema = paginationQuerySchema.extend({
   isFeatured: booleanQuery,
   is_active: booleanQuery,
   isActive: booleanQuery,
+  /** Products created within the last N days (storefront “New Arrivals”). */
+  created_within_days: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(365).optional()),
+  createdWithinDays: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(365).optional()),
+  /** Opaque keyset cursor for product infinite scroll (base64url JSON). */
+  cursor: optionalString,
   sort: optionalString,
   direction: sortDirectionSchema,
 }).strip()
@@ -151,6 +156,8 @@ export const catalogListQuerySchema = listFiltersQuerySchema.extend({
   isPublished: booleanQuery,
   applicable_variant_id: optionalObjectId,
   applicableVariantId: optionalObjectId,
+  /** Storefront metal purity filter, e.g. 22k / 24k */
+  purity: optionalString,
 }).strip()
 
 export const inventoryListQuerySchema = listFiltersQuerySchema.extend({

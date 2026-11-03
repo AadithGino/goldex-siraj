@@ -33,6 +33,10 @@ const schema = z.object({
   SHOW_TEST_OTP: envBoolean.default(false),
   /** Temporary override: allow SHOW_TEST_OTP while WhatsApp delivery is broken. Remove when fixed. */
   ALLOW_TEST_OTP_IN_PRODUCTION: envBoolean.default(false),
+  RESEND_API_KEY: z.string().optional(),
+  /** Verified sender, e.g. "Goldex Jewellery <noreply@goldexjewellery.ae>" — onboarding@resend.dev is test-only */
+  RESEND_FROM_EMAIL: z.string().optional(),
+  RESEND_REPLY_TO: z.string().optional(),
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   STORAGE_LOCAL_PATH: z.string().default('uploads'),
   STORAGE_PUBLIC_URL: z.string().url().default('http://localhost:4000/uploads'),
@@ -166,6 +170,11 @@ export const config = Object.freeze({
       accessToken: firstNonEmpty(env.WHATSAPP_ACCESS_TOKEN),
       templateName: firstNonEmpty(env.WHATSAPP_TEMPLATE_NAME) || 'login_otp',
       templateLanguage: firstNonEmpty(env.WHATSAPP_TEMPLATE_LANGUAGE) || 'en',
+    },
+    resend: {
+      apiKey: firstNonEmpty(env.RESEND_API_KEY),
+      fromEmail: firstNonEmpty(env.RESEND_FROM_EMAIL) || 'Goldex Jewellery <info@goldexjewellery.ae>',
+      replyTo: firstNonEmpty(env.RESEND_REPLY_TO),
     },
   },
   jewellery: {

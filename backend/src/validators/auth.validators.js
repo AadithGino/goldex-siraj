@@ -1,11 +1,45 @@
 import { z } from 'zod'
 
+const otpChannel = z.enum(['phone', 'email'])
+
+/** Clients often send the unused channel as null — treat as omitted. */
+const nullToUndefined = (value) => (value == null || value === '' ? undefined : value)
+const optionalPhone = z.preprocess(nullToUndefined, z.string().min(8).max(20).optional())
+const optionalEmail = z.preprocess(nullToUndefined, z.email().optional())
+
 export const sendOtpSchema = {
-  body: z.object({ phone: z.string().min(8).max(20) }),
+  body: z.object({
+    channel: otpChannel.optional().default('phone'),
+    phone: optionalPhone,
+    email: optionalEmail,
+  }).superRefine((value, ctx) => {
+    const channel = value.channel || 'phone'
+    if (channel === 'phone' && !value.phone) {
+      ctx.addIssue({ code: 'custom', message: 'phone is required', path: ['phone'] })
+    }
+    if (channel === 'email' && !value.email) {
+      ctx.addIssue({ code: 'custom', message: 'email is required', path: ['email'] })
+    }
+  }),
 }
+
 export const verifyOtpSchema = {
-  body: z.object({ phone: z.string().min(8).max(20), code: z.string().regex(/^\d{6}$/) }),
+  body: z.object({
+    channel: otpChannel.optional().default('phone'),
+    phone: optionalPhone,
+    email: optionalEmail,
+    code: z.string().regex(/^\d{6}$/),
+  }).superRefine((value, ctx) => {
+    const channel = value.channel || 'phone'
+    if (channel === 'phone' && !value.phone) {
+      ctx.addIssue({ code: 'custom', message: 'phone is required', path: ['phone'] })
+    }
+    if (channel === 'email' && !value.email) {
+      ctx.addIssue({ code: 'custom', message: 'email is required', path: ['email'] })
+    }
+  }),
 }
+
 export const staffLoginSchema = {
   body: z.object({ email: z.email(), password: z.string().min(8).max(128) }),
 }

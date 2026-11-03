@@ -8,12 +8,13 @@ export function parsePagination(query = {}, { defaultLimit = 50, maxLimit = 100 
   return { page, limit, skip: (page - 1) * limit }
 }
 
-export function paginationMeta(page, limit, total) {
+export function paginationMeta(page, limit, total, extra = {}) {
   const safeTotal = Math.max(0, Number(total) || 0)
   return {
     page,
     limit,
     total: safeTotal,
     pages: safeTotal === 0 ? 0 : Math.ceil(safeTotal / limit),
+    ...extra,
   }
 }

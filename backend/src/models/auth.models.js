@@ -24,14 +24,16 @@ const staffSchema = new Schema({
 }, { timestamps: true })
 
 const otpCodeSchema = new Schema({
-  phone: { type: String, required: true, index: true },
+  channel: { type: String, enum: ['phone', 'email'], default: 'phone', index: true },
+  phone: { type: String, index: true, sparse: true },
+  email: { type: String, lowercase: true, trim: true, index: true, sparse: true },
   codeHash: { type: String, required: true, select: false },
   purpose: { type: String, enum: ['login', 'phone_verify'], default: 'login' },
   attempts: { type: Number, default: 0 },
   maxAttempts: { type: Number, required: true },
   expiresAt: { type: Date, required: true },
   consumedAt: { type: Date, default: null },
-  /** Set to phone while challenge is active; cleared on consume for unique active-OTP index. */
+  /** Set while challenge is active; cleared on consume for unique active-OTP index. */
   activeChallengeKey: { type: String, default: null },
 }, { timestamps: { createdAt: true, updatedAt: false } })
 otpCodeSchema.index(

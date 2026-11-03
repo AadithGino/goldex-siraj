@@ -6,6 +6,7 @@ import { canExposeTestOtp, config } from '../config/env.js'
 import { logger } from '../config/logger.js'
 import { Customer, OtpCode, RefreshSession, Staff } from '../models/auth.models.js'
 import { AppError } from '../utils/AppError.js'
+import { sendLoginOtpEmail } from './resend.service.js'
 
 const phonePattern = /^\+[1-9]\d{7,14}$/
 const hashToken = (token) => createHash('sha256').update(token).digest('hex')
@@ -23,7 +24,37 @@ export function normalizePhone(input) {
   return phone
 }
 
-async function deliverOtp(phone, code) {
+export function normalizeEmail(input) {
+  const email = String(input || '').trim().toLowerCase()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new AppError(422, 'INVALID_EMAIL', 'Enter a valid email address')
+  }
+  return email
+}
+
+function resolveOtpDestination({ channel = 'phone', phone, email } = {}) {
+  const resolvedChannel = channel === 'email' ? 'email' : 'phone'
+  if (resolvedChannel === 'email') {
+    const normalizedEmail = normalizeEmail(email)
+    return {
+      channel: 'email',
+      email: normalizedEmail,
+      phone: null,
+      challengeKey: `email:${normalizedEmail}:login`,
+      destination: normalizedEmail,
+    }
+  }
+  const normalizedPhone = normalizePhone(phone)
+  return {
+    channel: 'phone',
+    phone: normalizedPhone,
+    email: null,
+    challengeKey: `${normalizedPhone}:login`,
+    destination: normalizedPhone,
+  }
+}
+
+async function deliverPhoneOtp(phone, code) {
   if (config.otp.provider === 'console') {
     logger.info({ phone }, 'Development OTP delivered via console provider')
     return
@@ -45,6 +76,22 @@ async function deliverOtp(phone, code) {
     return
   }
   throw new AppError(503, 'OTP_PROVIDER_UNSUPPORTED', 'OTP provider is not supported')
+}
+
+async function deliverEmailOtp(email, code) {
+  await sendLoginOtpEmail({
+    to: email,
+    code,
+    idempotencyKey: `login-otp/${email}/${Date.now()}`,
+  })
+}
+
+async function deliverOtpByChannel(destination, code) {
+  if (destination.channel === 'email') {
+    await deliverEmailOtp(destination.email, code)
+    return
+  }
+  await deliverPhoneOtp(destination.phone, code)
 }
 
 function normalizeWhatsappRecipient(phone) {
@@ -287,18 +334,25 @@ function isDuplicateKey(error) {
 }
 
 /**
- * Create at most one active OTP per phone. Concurrent sends serialize via unique activeChallengeKey.
- * Rate limit is insert-then-count (atomic under concurrency): over-limit docs are deleted.
+ * Create at most one active OTP per destination (phone or email).
+ * Concurrent sends serialize via unique activeChallengeKey.
  */
-export async function sendOtp(phoneInput) {
-  const phone = normalizePhone(phoneInput)
+export async function sendOtp(input) {
+  const destination = typeof input === 'string'
+    ? resolveOtpDestination({ channel: 'phone', phone: input })
+    : resolveOtpDestination(input)
 
   const code = String(randomInt(100000, 1000000))
   const codeHash = await argon2.hash(code)
   const expiresAt = new Date(Date.now() + config.otp.ttlSeconds * 1000)
-  const challengeKey = `${phone}:login`
+  const challengeKey = destination.challengeKey
+  const identityFilter = destination.channel === 'email'
+    ? { email: destination.email }
+    : { phone: destination.phone }
   const doc = {
-    phone,
+    channel: destination.channel,
+    phone: destination.phone,
+    email: destination.email,
     codeHash,
     maxAttempts: config.otp.maxAttempts,
     expiresAt,
@@ -307,14 +361,11 @@ export async function sendOtp(phoneInput) {
     attempts: 0,
   }
 
-  // Concurrent sends race on the partial unique activeChallengeKey index.
-  // Retry: clear any active challenge for this phone, then insert until we win
-  // (or surface a non-duplicate error). Do not rely on in-memory locks.
   const maxInsertAttempts = 8
   let created = null
   for (let attempt = 0; attempt < maxInsertAttempts; attempt += 1) {
     await OtpCode.updateMany(
-      { phone, $or: [{ consumedAt: null }, { activeChallengeKey: challengeKey }] },
+      { ...identityFilter, $or: [{ consumedAt: null }, { activeChallengeKey: challengeKey }] },
       { $set: { consumedAt: new Date(), activeChallengeKey: null } },
     )
     try {
@@ -328,9 +379,8 @@ export async function sendOtp(phoneInput) {
     throw new AppError(503, 'OTP_CONTENTION', 'Could not create OTP challenge; please retry')
   }
 
-  // Insert-then-count rate limit (avoids racy countDocuments-before-insert).
   const recent = await OtpCode.countDocuments({
-    phone,
+    ...identityFilter,
     createdAt: { $gte: new Date(Date.now() - 15 * 60_000) },
   })
   if (recent > 5) {
@@ -340,17 +390,20 @@ export async function sendOtp(phoneInput) {
 
   let deliveryFailed = false
   try {
-    await deliverOtp(phone, code)
+    await deliverOtpByChannel(destination, code)
   } catch (error) {
-    // Temporary testing: keep the challenge and expose OTP on-screen when SHOW_TEST_OTP is on.
     if (canExposeTestOtp()) {
       deliveryFailed = true
       logger.warn(
-        { err: error, phone, provider: config.otp.provider },
+        {
+          err: error,
+          channel: destination.channel,
+          destination: destination.destination,
+          provider: destination.channel === 'email' ? 'resend' : config.otp.provider,
+        },
         'OTP delivery failed; exposing test_otp because SHOW_TEST_OTP is enabled',
       )
     } else {
-      // Only invalidate the document we just created — never clear another phone's active challenge.
       await OtpCode.updateOne(
         { _id: created._id },
         { $set: { consumedAt: new Date(), activeChallengeKey: null } },
@@ -359,7 +412,6 @@ export async function sendOtp(phoneInput) {
     }
   }
 
-  // Re-verify this doc is still the active challenge before returning a code.
   const stillActive = await OtpCode.findOne({
     _id: created._id,
     consumedAt: null,
@@ -369,7 +421,11 @@ export async function sendOtp(phoneInput) {
     throw new AppError(503, 'OTP_CONTENTION', 'OTP challenge was superseded; please retry')
   }
 
-  const payload = { expires_in: config.otp.ttlSeconds }
+  const payload = {
+    expires_in: config.otp.ttlSeconds,
+    channel: destination.channel,
+    destination: destination.destination,
+  }
   if (canExposeTestOtp()) {
     payload.test_otp = code
     if (deliveryFailed) payload.delivery = 'failed_shown_on_screen'
@@ -380,10 +436,18 @@ export async function sendOtp(phoneInput) {
 /**
  * Consume an OTP exactly once. Concurrent verifies: one success, others INVALID_OTP.
  */
-export async function verifyOtp(phoneInput, code) {
-  const phone = normalizePhone(phoneInput)
+export async function verifyOtp(input, codeMaybe) {
+  // Backward compatible: verifyOtp(phone, code) or verifyOtp({ channel, phone|email, code })
+  const payload = typeof input === 'string'
+    ? { channel: 'phone', phone: input, code: codeMaybe }
+    : input
+  const destination = resolveOtpDestination(payload)
+  const identityFilter = destination.channel === 'email'
+    ? { email: destination.email }
+    : { phone: destination.phone }
+
   const otp = await OtpCode.findOne({
-    phone,
+    ...identityFilter,
     consumedAt: null,
     activeChallengeKey: { $ne: null },
     expiresAt: { $gt: new Date() },
@@ -393,7 +457,7 @@ export async function verifyOtp(phoneInput, code) {
     throw new AppError(401, 'INVALID_OTP', 'OTP is invalid or expired')
   }
 
-  const valid = await argon2.verify(otp.codeHash, String(code))
+  const valid = await argon2.verify(otp.codeHash, String(payload.code ?? codeMaybe))
   if (!valid) {
     const bumped = await OtpCode.findOneAndUpdate(
       {
@@ -426,12 +490,19 @@ export async function verifyOtp(phoneInput, code) {
   )
   if (!consumed) throw new AppError(401, 'INVALID_OTP', 'OTP is invalid or expired')
 
-  const customer = await Customer.findOneAndUpdate(
-    { phone },
-    { $setOnInsert: { phone, authProvider: 'otp' }, $set: { isActive: true } },
+  if (destination.channel === 'email') {
+    return Customer.findOneAndUpdate(
+      { email: destination.email },
+      { $setOnInsert: { email: destination.email, authProvider: 'email' }, $set: { isActive: true } },
+      { upsert: true, new: true },
+    )
+  }
+
+  return Customer.findOneAndUpdate(
+    { phone: destination.phone },
+    { $setOnInsert: { phone: destination.phone, authProvider: 'otp' }, $set: { isActive: true } },
     { upsert: true, new: true },
   )
-  return customer
 }
 
 export async function staffLogin(email, password) {

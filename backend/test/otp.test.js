@@ -170,6 +170,7 @@ describe('production SHOW_TEST_OTP guard', () => {
     const script = `
       process.env.NODE_ENV = 'production'
       process.env.SHOW_TEST_OTP = 'true'
+      process.env.ALLOW_TEST_OTP_IN_PRODUCTION = 'false'
       process.env.OTP_PROVIDER = 'http'
       process.env.OTP_PROVIDER_URL = 'https://otp.example.com/send'
       process.env.OTP_PROVIDER_API_KEY = 'production-key'
@@ -182,7 +183,7 @@ describe('production SHOW_TEST_OTP guard', () => {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
       cwd: backendRoot,
       encoding: 'utf8',
-      env: { ...process.env, NODE_ENV: 'production' },
+      env: { ...process.env, NODE_ENV: 'production', ALLOW_TEST_OTP_IN_PRODUCTION: 'false' },
     })
     expect(result.status).not.toBe(0)
     expect(`${result.stderr}${result.stdout}`).toMatch(/SHOW_TEST_OTP is forbidden in production/)

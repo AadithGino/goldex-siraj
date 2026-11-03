@@ -28,9 +28,22 @@ function refreshTokenFrom(req) {
     || null
 }
 
-export async function sendOtp(req, res) { await ok(res, await authService.sendOtp(req.validated.body.phone), 202) }
+export async function sendOtp(req, res) {
+  const body = req.validated.body
+  await ok(res, await authService.sendOtp({
+    channel: body.channel || (body.email ? 'email' : 'phone'),
+    phone: body.phone,
+    email: body.email,
+  }), 202)
+}
 export async function verifyOtp(req, res) {
-  const customer = await authService.verifyOtp(req.validated.body.phone, req.validated.body.code)
+  const body = req.validated.body
+  const customer = await authService.verifyOtp({
+    channel: body.channel || (body.email ? 'email' : 'phone'),
+    phone: body.phone,
+    email: body.email,
+    code: body.code,
+  })
   const tokens = await authService.issueSession(customer, 'customer', requestMeta(req))
   setCustomerSessionCookies(res, tokens)
   await ok(res, sessionPayload(customer, tokens), 200)

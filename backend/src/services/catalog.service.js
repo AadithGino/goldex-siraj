@@ -4,7 +4,14 @@ import { Banner, Brand, Category, Certificate, CmsPage, Product, ProductImage, P
 import { GoldBuybackRate, GoldRate, StoneRate } from '../models/rate.models.js'
 import { AppError } from '../utils/AppError.js'
 import { sanitizeCmsHtml } from '../utils/htmlSanitize.js'
+import {
+  decodeProductCursor,
+  encodeProductCursor,
+  PRODUCT_LIST_SORT,
+  productCursorFilter,
+} from '../utils/cursorPagination.js'
 import { paginationMeta, parsePagination } from '../utils/pagination.js'
+import { normalizePurity } from '../utils/purity.js'
 import { deserialize } from '../utils/serialize.js'
 import { assertVariantWeights } from './address.dto.js'
 import { assertCatalogWriteNotEmpty, toCatalogWriteDto } from './catalog.dto.js'
@@ -96,11 +103,91 @@ export async function list(resource, query = {}, admin = false) {
       { slug: new RegExp(String(mapped.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
     ]
   }
+
+  // Match product-level purity or any variant purity (e.g. 21k only on a variant).
+  if (resource === 'products' && mapped.purity && mapped.purity !== 'all') {
+    const purity = normalizePurity(mapped.purity, { optional: true })
+    if (purity) {
+      // Cover common stored casings (24k / 24K / 24KT).
+      const purityAliases = [
+        purity,
+        purity.toUpperCase(),
+        `${purity.slice(0, -1)}kt`,
+        `${purity.slice(0, -1)}KT`,
+      ]
+      const variantProductIds = await Variant.distinct('productId', {
+        purity: { $in: purityAliases },
+        ...(admin ? {} : { isActive: true }),
+      })
+      const purityClause = {
+        $or: [
+          { purity: { $in: purityAliases } },
+          { _id: { $in: variantProductIds } },
+        ],
+      }
+      filter.$and = [...(filter.$and || []), purityClause]
+    }
+  }
+
+  // New arrivals: products created within the last N days.
+  const createdWithinDays = Number(mapped.createdWithinDays)
+  const filterByRecency = resource === 'products'
+    && Number.isFinite(createdWithinDays)
+    && createdWithinDays > 0
+  if (filterByRecency) {
+    const since = new Date(Date.now() - createdWithinDays * 24 * 60 * 60 * 1000)
+    filter.createdAt = { ...(filter.createdAt || {}), $gte: since }
+  }
+
   const { page, limit, skip } = parsePagination(mapped, { defaultLimit: 50, maxLimit: 100 })
-  const [rows, total] = await Promise.all([
-    Model.find(filter).sort({ displayOrder: 1, createdAt: -1 }).skip(skip).limit(limit).lean(),
-    Model.countDocuments(filter),
+  const useCursor = resource === 'products' && Boolean(mapped.cursor)
+  const sort = filterByRecency
+    ? { createdAt: -1, _id: -1 }
+    : PRODUCT_LIST_SORT
+
+  let cursorFilter = null
+  if (useCursor) {
+    cursorFilter = productCursorFilter(decodeProductCursor(mapped.cursor))
+    if (cursorFilter) filter.$and = [...(filter.$and || []), cursorFilter]
+  }
+
+  const findLimit = useCursor ? limit + 1 : limit
+  const findQuery = Model.find(filter).sort(sort).limit(findLimit)
+  if (!useCursor) findQuery.skip(skip)
+
+  const [rowsRaw, total] = await Promise.all([
+    findQuery.lean(),
+    Model.countDocuments(
+      // Count ignores cursor so meta.total stays the full filtered catalog size.
+      useCursor
+        ? (() => {
+            const countFilter = { ...filter }
+            if (cursorFilter && Array.isArray(countFilter.$and)) {
+              countFilter.$and = countFilter.$and.filter((clause) => clause !== cursorFilter)
+              if (!countFilter.$and.length) delete countFilter.$and
+            }
+            return countFilter
+          })()
+        : filter,
+    ),
   ])
+
+  let rows = rowsRaw
+  let nextCursor = null
+  let hasMore = false
+  if (useCursor) {
+    hasMore = rowsRaw.length > limit
+    rows = hasMore ? rowsRaw.slice(0, limit) : rowsRaw
+    const last = rows[rows.length - 1]
+    nextCursor = hasMore ? encodeProductCursor(last) : null
+  } else if (resource === 'products' && rows.length) {
+    // First page can still start infinite scroll from the last item.
+    const last = rows[rows.length - 1]
+    const pageHasMore = skip + rows.length < total
+    nextCursor = pageHasMore ? encodeProductCursor(last) : null
+    hasMore = pageHasMore
+  }
+
   const hydrate = String(mapped.hydrate || '') === '1' || mapped.hydrate === true || mapped.hydrate === 'true'
   let items = hydrate && resource === 'products'
     ? await hydrateProductsBatch(rows, admin)
@@ -118,7 +205,13 @@ export async function list(resource, query = {}, admin = false) {
   if (resource === 'certificates' && !admin) {
     items = items.map((row) => toPublicCertificate(row))
   }
-  return { items, ...paginationMeta(page, limit, total) }
+  return {
+    items,
+    ...paginationMeta(page, limit, total, {
+      next_cursor: nextCursor,
+      has_more: hasMore,
+    }),
+  }
 }
 
 async function hydrateProductsBatch(rows, admin = false) {
