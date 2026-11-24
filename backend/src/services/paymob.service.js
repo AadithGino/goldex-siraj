@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { config } from "../config/env.js";
+import { PaymentEvent } from "../models/commerce.models.js";
 import { AppError } from "../utils/AppError.js";
+import { logger } from "../config/logger.js";
 
 function normalizeBaseUrl(url) {
   return String(url || "").replace(/\/+$/, "");
@@ -492,4 +494,186 @@ export function isPaymobPendingFlag(value) {
     value === 1 ||
     value === "1"
   );
+}
+
+function toAmountCents(amountAed) {
+  return Math.round(Number(amountAed || 0) * 100);
+}
+
+function resolvePaymobTransactionId(order) {
+  const ref = String(order?.paymentCollection?.transactionRef || "").trim();
+  if (ref) return ref.replace(/^paymob:/i, "");
+  return null;
+}
+
+/**
+ * Refund (or void) a captured Paymob transaction. Amounts are AED.
+ * Returns { paymobAmount, method } where method is refund|void|idempotent.
+ */
+export async function refundOrderViaPaymob(
+  order,
+  { amount, referenceId, reason, fullCancel = false } = {},
+) {
+  if (order.paymentProvider !== "paymob") return { paymobAmount: 0 };
+
+  const transactionId = resolvePaymobTransactionId(order);
+  if (!transactionId) {
+    throw new AppError(
+      409,
+      "PAYMOB_REFUND_UNAVAILABLE",
+      "Paid Paymob order has no transaction id to refund; cannot cancel safely",
+    );
+  }
+
+  const cfg = getPaymobConfig();
+  if (!cfg.isConfigured || !cfg.secretKey) {
+    throw new AppError(
+      503,
+      "PAYMOB_NOT_CONFIGURED",
+      "Paymob refund is not configured",
+    );
+  }
+
+  const externalPaid = roundMoneyAed(
+    Number(order.paymentCollection?.amount || 0),
+  );
+  const remaining = roundMoneyAed(
+    Math.max(0, externalPaid - Number(order.paymobRefundedTotal || 0)),
+  );
+  let paymobAmount = roundMoneyAed(Math.min(Number(amount || 0), remaining));
+  if (!(paymobAmount > 0)) return { paymobAmount: 0 };
+
+  const amountCents = toAmountCents(paymobAmount);
+  if (!(amountCents > 0)) return { paymobAmount: 0 };
+
+  const orderId = String(order.id || order._id || "");
+  const intentKey = `paymob-refund-intent:${String(referenceId || `${orderId}:${amountCents}`)}`;
+
+  // Claim a unique intent row so concurrent cancel/return cannot double-hit Paymob.
+  try {
+    await PaymentEvent.create({
+      orderId,
+      provider: "paymob",
+      eventType: "refund_intent",
+      transactionId: intentKey,
+      amount: paymobAmount,
+      currency: "AED",
+      verified: false,
+      payload: {
+        phase: "pending",
+        reference_id: referenceId || null,
+        reason: reason || null,
+        transaction_id: transactionId,
+        amount_cents: amountCents,
+      },
+    });
+  } catch (error) {
+    const dup = error?.code === 11000 || error?.cause?.code === 11000;
+    if (!dup) throw error;
+    const existing = await PaymentEvent.findOne({ transactionId: intentKey });
+    if (existing?.verified) {
+      return {
+        paymobAmount: roundMoneyAed(Number(existing.amount || paymobAmount)),
+        method: existing.payload?.method || "idempotent",
+        provider_payload: existing.payload?.provider_payload || null,
+      };
+    }
+    throw new AppError(
+      409,
+      "PAYMOB_REFUND_IN_PROGRESS",
+      "A Paymob refund for this reference is already in progress; retry shortly",
+      { reference_id: referenceId || null },
+    );
+  }
+
+  const headers = {
+    Authorization: `Token ${cfg.secretKey}`,
+    "Content-Type": "application/json",
+  };
+
+  // Prefer refund; fall back to void for same-day unsettled captures when full cancel.
+  let response = await fetch(
+    `${cfg.baseUrl}/api/acceptance/void_refund/refund`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        transaction_id: Number.isFinite(Number(transactionId))
+          ? Number(transactionId)
+          : transactionId,
+        amount_cents: amountCents,
+      }),
+    },
+  );
+  let data = await response.json().catch(() => null);
+  let method = "refund";
+
+  if (!response.ok && fullCancel) {
+    const voidResponse = await fetch(
+      `${cfg.baseUrl}/api/acceptance/void_refund/void`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          transaction_id: Number.isFinite(Number(transactionId))
+            ? Number(transactionId)
+            : transactionId,
+        }),
+      },
+    );
+    const voidData = await voidResponse.json().catch(() => null);
+    if (voidResponse.ok) {
+      response = voidResponse;
+      data = voidData;
+      method = "void";
+      paymobAmount = remaining;
+    }
+  }
+
+  if (!response.ok) {
+    await PaymentEvent.deleteOne({ transactionId: intentKey, verified: false }).catch((err) => {
+      logger.warn({ err, intentKey }, "Failed to clear Paymob refund intent after API error");
+    });
+    const message =
+      data?.detail ||
+      data?.message ||
+      data?.messages?.[0] ||
+      `Paymob refund failed (${response.status})`;
+    throw new AppError(502, "PAYMOB_REFUND_FAILED", String(message), {
+      reference_id: referenceId || null,
+      reason: reason || null,
+      paymob_status: response.status,
+      paymob_body: data,
+    });
+  }
+
+  order.paymobRefundedTotal = roundMoneyAed(
+    Number(order.paymobRefundedTotal || 0) + paymobAmount,
+  );
+
+  await PaymentEvent.updateOne(
+    { transactionId: intentKey },
+    {
+      $set: {
+        verified: true,
+        amount: paymobAmount,
+        processedAt: new Date(),
+        payload: {
+          phase: "completed",
+          method,
+          reference_id: referenceId || null,
+          reason: reason || null,
+          transaction_id: transactionId,
+          amount_cents: toAmountCents(paymobAmount),
+          provider_payload: data,
+        },
+      },
+    },
+  );
+
+  return { paymobAmount, method, provider_payload: data };
+}
+
+function roundMoneyAed(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }

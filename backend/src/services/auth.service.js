@@ -388,6 +388,16 @@ export async function sendOtp(input) {
     throw new AppError(429, 'OTP_LIMIT', 'Too many OTP requests; try again later')
   }
 
+  // Only deliver while this challenge is still the active one.
+  const activeBeforeSend = await OtpCode.findOne({
+    _id: created._id,
+    consumedAt: null,
+    activeChallengeKey: challengeKey,
+  })
+  if (!activeBeforeSend) {
+    throw new AppError(503, 'OTP_CONTENTION', 'OTP challenge was superseded; please retry')
+  }
+
   let deliveryFailed = false
   try {
     await deliverOtpByChannel(destination, code)
@@ -418,7 +428,15 @@ export async function sendOtp(input) {
     activeChallengeKey: challengeKey,
   })
   if (!stillActive) {
-    throw new AppError(503, 'OTP_CONTENTION', 'OTP challenge was superseded; please retry')
+    // Code may already be in the user's inbox/WhatsApp; do not return contention
+    // after a successful send — the concurrent challenge owns verification now.
+    logger.warn(
+      {
+        channel: destination.channel,
+        destination: destination.destination,
+      },
+      'OTP challenge superseded after delivery; returning success for the send that completed',
+    )
   }
 
   const payload = {

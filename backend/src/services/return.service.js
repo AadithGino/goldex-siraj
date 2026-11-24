@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { logger } from '../config/logger.js'
 import { StoreSetting } from '../models/catalog.models.js'
 import { Order, PaymentEvent, ReturnCoordination, ReturnRequest } from '../models/commerce.models.js'
 import { AppError } from '../utils/AppError.js'
@@ -12,6 +13,7 @@ import {
   findOrderItem,
   remainingReturnableQty,
 } from './refund.service.js'
+import { refundOrderViaPaymob } from './paymob.service.js'
 import { refundOrderViaTabby } from './tabby.payment.service.js'
 import { claimReturnProofsInSession } from './upload.service.js'
 import * as walletService from './wallet.service.js'
@@ -59,12 +61,14 @@ async function claimReturnCoordination(orderId, mode, session) {
   return claimed
 }
 
-async function releaseReturnCoordination(orderId, session) {
-  const coord = await ReturnCoordination.findOne({ orderId }).session(session)
+async function releaseReturnCoordination(orderId, session = null) {
+  const query = ReturnCoordination.findOne({ orderId })
+  if (session) query.session(session)
+  const coord = await query
   if (!coord) return
   coord.activeRequestCount = Math.max(0, Number(coord.activeRequestCount || 0) - 1)
   if (coord.activeRequestCount === 0) coord.mode = 'idle'
-  await coord.save({ session })
+  await coord.save(session ? { session } : undefined)
 }
 
 async function releaseLineReservation(order, orderItemId, qty, session) {
@@ -249,32 +253,50 @@ export async function resolveReturn(id, input, staffId) {
   }
 
   if (request.kind === 'cancellation' && input.status === 'approved') {
-    const session = await mongoose.startSession()
-    try {
-      return await session.withTransaction(async () => {
-        const locked = await ReturnRequest.findOneAndUpdate(
-          { _id: id, kind: 'cancellation', status: { $in: ['requested', 'approved'] } },
-          {
-            $set: {
-              status: 'completed',
-              resolvedBy: staffId,
-              resolvedAt: new Date(),
-              resolutionNote: input.resolution_note,
-            },
-          },
-          { new: true, session },
-        )
-        if (!locked) {
-          const current = await ReturnRequest.findById(id).session(session)
-          if (current?.status === 'completed') return current
-          throw new AppError(409, 'RETURN_ALREADY_RESOLVED', 'Return has already been resolved')
+    // Claim the cancellation request first so we never leave a cancelled order
+    // with a still-open cancellation request if the follow-up write fails.
+    const claimed = await ReturnRequest.findOneAndUpdate(
+      { _id: id, kind: 'cancellation', status: { $in: ['requested', 'approved'] } },
+      {
+        $set: {
+          status: 'completed',
+          resolvedBy: staffId,
+          resolvedAt: new Date(),
+          resolutionNote: input.resolution_note,
+        },
+      },
+      { new: true },
+    )
+    if (!claimed) {
+      const current = await ReturnRequest.findById(id)
+      if (current?.status === 'completed') {
+        const order = await Order.findById(current.orderId)
+        if (order && order.status !== 'cancelled') {
+          await cancelOrder(current.orderId, staffId, input.resolution_note || 'Cancellation approved')
         }
-        await cancelOrder(locked.orderId, staffId, input.resolution_note || 'Cancellation approved', { session })
-        await releaseReturnCoordination(locked.orderId, session)
-        return locked
-      })
-    } finally {
-      session.endSession()
+        await releaseReturnCoordination(current.orderId)
+        return current
+      }
+      throw new AppError(409, 'RETURN_ALREADY_RESOLVED', 'Return has already been resolved')
+    }
+
+    try {
+      await cancelOrder(claimed.orderId, staffId, input.resolution_note || 'Cancellation approved')
+      await releaseReturnCoordination(claimed.orderId)
+      return claimed
+    } catch (error) {
+      // Roll back claim so staff can retry after fixing the cancel failure.
+      await ReturnRequest.updateOne(
+        { _id: claimed.id, status: 'completed' },
+        {
+          $set: {
+            status: 'approved',
+            resolvedAt: null,
+            resolutionNote: input.resolution_note || claimed.resolutionNote || null,
+          },
+        },
+      )
+      throw error
     }
   }
 
@@ -298,23 +320,89 @@ export async function resolveReturn(id, input, staffId) {
     return locked
   }
 
-  // Complete return (must be approved)
+  // Complete return (must be approved). Claim completion first to serialize concurrent completes.
+  const claimed = await ReturnRequest.findOneAndUpdate(
+    { _id: id, status: 'approved' },
+    {
+      $set: {
+        status: 'completed',
+        resolvedBy: staffId,
+        resolvedAt: new Date(),
+        resolutionNote: input.resolution_note,
+      },
+    },
+    { new: true },
+  )
+  if (!claimed) {
+    const current = await ReturnRequest.findById(id)
+    if (!current) throw new AppError(404, 'RETURN_NOT_FOUND', 'Return request not found')
+    if (current.status === 'completed') return current
+    if (current.status !== 'approved') {
+      throw new AppError(409, 'RETURN_NOT_APPROVED', 'Approve the return before completing it')
+    }
+    throw new AppError(409, 'RETURN_ALREADY_RESOLVED', 'Return has already been resolved')
+  }
+
+  const orderPreview = await Order.findById(claimed.orderId)
+  if (!orderPreview) {
+    await ReturnRequest.updateOne(
+      { _id: claimed.id, status: 'completed' },
+      { $set: { status: 'approved', resolvedAt: null } },
+    )
+    throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  }
+  if (claimed.orderItemId && !findOrderItem(orderPreview, claimed.orderItemId)) {
+    await ReturnRequest.updateOne(
+      { _id: claimed.id, status: 'completed' },
+      { $set: { status: 'approved', resolvedAt: null } },
+    )
+    throw new AppError(422, 'INVALID_ORDER_ITEM', 'order_item_id does not belong to this order')
+  }
+  if (orderPreview.paymentStatus === 'paid' && !(orderPreview.items || []).some((item) => Number(item.paidAllocation || 0) > 0)) {
+    allocatePaidAmounts(orderPreview)
+  }
+  const planPreview = computeReturnRefund(orderPreview, {
+    orderItemId: claimed.orderItemId || null,
+    qty: claimed.orderItemId ? claimed.requestedQty : null,
+  })
+
+  let preExternalRefund = null
+  try {
+    if (planPreview.refundAmount > 0 && orderPreview.paymentProvider === 'tabby') {
+      const tabbyRefund = await refundOrderViaTabby(orderPreview, {
+        amount: planPreview.refundAmount,
+        referenceId: `refund-return-${claimed.id}`,
+        reason: input.resolution_note || claimed.reason || 'Return completed',
+      })
+      preExternalRefund = {
+        amount: tabbyRefund.tabbyAmount,
+        provider: 'tabby',
+        tabbyRefundedTotal: orderPreview.tabbyRefundedTotal,
+      }
+    } else if (planPreview.refundAmount > 0 && orderPreview.paymentProvider === 'paymob') {
+      const paymobRefund = await refundOrderViaPaymob(orderPreview, {
+        amount: planPreview.refundAmount,
+        referenceId: `refund-return-${claimed.id}`,
+        reason: input.resolution_note || claimed.reason || 'Return completed',
+      })
+      preExternalRefund = {
+        amount: paymobRefund.paymobAmount,
+        provider: 'paymob',
+        paymobRefundedTotal: orderPreview.paymobRefundedTotal,
+      }
+    }
+  } catch (error) {
+    await ReturnRequest.updateOne(
+      { _id: claimed.id, status: 'completed' },
+      { $set: { status: 'approved', resolvedAt: null } },
+    )
+    throw error
+  }
+
   const session = await mongoose.startSession()
   try {
     return await session.withTransaction(async () => {
-      const locked = await ReturnRequest.findOneAndUpdate(
-        { _id: id, status: 'approved' },
-        { $set: { status: 'completed', resolvedBy: staffId, resolvedAt: new Date(), resolutionNote: input.resolution_note } },
-        { new: true, session },
-      )
-      if (!locked) {
-        const current = await ReturnRequest.findById(id).session(session)
-        if (current?.status === 'completed') return current
-        if (current?.status !== 'approved') {
-          throw new AppError(409, 'RETURN_NOT_APPROVED', 'Approve the return before completing it')
-        }
-        throw new AppError(409, 'RETURN_ALREADY_RESOLVED', 'Return has already been resolved')
-      }
+      const locked = claimed
 
       const order = await Order.findById(locked.orderId).session(session)
       if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
@@ -366,27 +454,35 @@ export async function resolveReturn(id, input, staffId) {
       }
 
       if (plan.refundAmount > 0) {
-        const { tabbyAmount } = await refundOrderViaTabby(order, {
-          amount: plan.refundAmount,
-          referenceId: `refund-return-${locked.id}`,
-          reason: input.resolution_note || locked.reason || 'Return completed',
-        })
-        const walletAmount = roundMoney(plan.refundAmount - tabbyAmount)
+        const externalAmount = roundMoney(Number(preExternalRefund?.amount || 0))
+        const externalProvider = preExternalRefund?.provider || null
+        if (preExternalRefund?.tabbyRefundedTotal != null) {
+          order.tabbyRefundedTotal = preExternalRefund.tabbyRefundedTotal
+        }
+        if (preExternalRefund?.paymobRefundedTotal != null) {
+          order.paymobRefundedTotal = preExternalRefund.paymobRefundedTotal
+        }
+        const walletAmount = roundMoney(plan.refundAmount - externalAmount)
         const eventPayload = {
           return_request_id: locked.id,
           order_item_id: locked.orderItemId || null,
           requested_qty: locked.requestedQty,
+          refunded_before_db_commit: Boolean(preExternalRefund),
         }
-        if (tabbyAmount > 0) {
+        if (externalAmount > 0 && externalProvider) {
           await PaymentEvent.create([{
             orderId: order.id,
-            provider: 'tabby',
+            provider: externalProvider,
             eventType: 'order_return_refund',
-            transactionId: `tabby-return-refund:${locked.id}`,
-            amount: tabbyAmount,
+            transactionId: `${externalProvider}-return-refund:${locked.id}`,
+            amount: externalAmount,
             currency: 'AED',
             verified: true,
-            payload: { ...eventPayload, tabby_payment_id: order.tabbyPaymentId },
+            payload: {
+              ...eventPayload,
+              tabby_payment_id: order.tabbyPaymentId || null,
+              paymob_transaction_id: order.paymentCollection?.transactionRef || null,
+            },
             processedAt: new Date(),
           }], { session })
         }
@@ -431,6 +527,20 @@ export async function resolveReturn(id, input, staffId) {
       await releaseReturnCoordination(locked.orderId, session)
       return locked
     })
+  } catch (error) {
+    if (preExternalRefund?.amount > 0) {
+      logger.error(
+        {
+          err: error,
+          returnRequestId: String(claimed.id),
+          orderId: String(claimed.orderId),
+          provider: preExternalRefund.provider,
+          amount: preExternalRefund.amount,
+        },
+        'Return completion DB commit failed after provider refund succeeded — reconcile manually',
+      )
+    }
+    throw error
   } finally {
     session.endSession()
   }

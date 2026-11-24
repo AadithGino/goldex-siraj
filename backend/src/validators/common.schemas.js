@@ -158,6 +158,27 @@ export const catalogListQuerySchema = listFiltersQuerySchema.extend({
   applicableVariantId: optionalObjectId,
   /** Storefront metal purity filter, e.g. 22k / 24k */
   purity: optionalString,
+  /** Storefront browse filters (comma-separated allowed). */
+  gender: optionalString,
+  genders: optionalString,
+  occasion: optionalString,
+  occasions: optionalString,
+  size: optionalString,
+  sizes: optionalString,
+  stone_type: optionalString,
+  stoneType: optionalString,
+  stone_types: optionalString,
+  stoneTypes: optionalString,
+  min_weight: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  minWeight: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  max_weight: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  maxWeight: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  min_price: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  minPrice: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  max_price: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  maxPrice: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  /** featured | newest | price_asc | price_desc */
+  sort: optionalString,
 }).strip()
 
 export const inventoryListQuerySchema = listFiltersQuerySchema.extend({

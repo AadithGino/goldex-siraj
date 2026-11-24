@@ -83,8 +83,9 @@ export async function addCartItem(customerId, input) {
     customizationKey: key,
   })
   const qty = Number(current?.qty || 0) + Number(payload.qty || 1)
-  if (variant.stockQty - variant.reservedQty < qty) {
-    throw new AppError(409, 'INSUFFICIENT_STOCK', `Only ${Math.max(0, variant.stockQty - variant.reservedQty)} left in stock`)
+  // Inventory mutations adjust stockQty only; reservedQty is not maintained.
+  if (variant.stockQty < qty) {
+    throw new AppError(409, 'INSUFFICIENT_STOCK', `Only ${Math.max(0, variant.stockQty)} left in stock`)
   }
   const price = await getPriceBreakup(variant.id)
 
@@ -118,7 +119,7 @@ export async function updateCartItem(customerId, itemId, input) {
   const variantId = payload.variantId || item.variantId
   const variant = await Variant.findOne({ _id: variantId, isActive: true })
   const qty = payload.qty ?? item.qty
-  if (!variant || variant.stockQty - variant.reservedQty < qty) {
+  if (!variant || variant.stockQty < qty) {
     throw new AppError(409, 'INSUFFICIENT_STOCK', 'Requested quantity is unavailable')
   }
 
@@ -140,7 +141,7 @@ export async function updateCartItem(customerId, itemId, input) {
     })
     if (existing) {
       const mergedQty = existing.qty + qty
-      if (variant.stockQty - variant.reservedQty < mergedQty) {
+      if (variant.stockQty < mergedQty) {
         throw new AppError(409, 'INSUFFICIENT_STOCK', 'Requested quantity is unavailable')
       }
       existing.qty = mergedQty

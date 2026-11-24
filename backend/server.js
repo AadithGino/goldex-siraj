@@ -17,6 +17,7 @@ async function start() {
     stopPaymentReconciliation = startPaymentReconciliationWorker({
       intervalSeconds: config.paymentReconciliation.intervalSeconds,
       batchSize: config.paymentReconciliation.batchSize,
+      pendingCancelHours: config.paymentReconciliation.pendingCancelHours,
     })
   }
   server.listen(config.port, () => logger.info({ port: config.port }, 'API listening'))

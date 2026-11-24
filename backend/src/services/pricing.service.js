@@ -177,10 +177,14 @@ export async function getPriceBreakup(variantId, qty = 1, rateMap = null, option
     throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Product not found or not available for sale')
   }
 
-  const purity = normalizePurity(variant.purity || product.purity || '22k')
-  let goldRate = rateMap?.[purity]
+  const useFixedPrice = !options.ignoreFixedPrice && Number(variant.fixedPrice) > 0
+  const purity = normalizePurity(variant.purity || product.purity || null, { optional: true })
+  if (!useFixedPrice && !purity) {
+    throw new AppError(409, 'PURITY_REQUIRED', 'Live-priced variants require a metal purity')
+  }
+  let goldRate = purity ? rateMap?.[purity] : null
   let goldRateDoc = null
-  if (goldRate == null) {
+  if (purity && goldRate == null) {
     if (shared?.goldRatesByPurity?.has(purity)) {
       goldRateDoc = shared.goldRatesByPurity.get(purity)
     } else {
@@ -189,7 +193,6 @@ export async function getPriceBreakup(variantId, qty = 1, rateMap = null, option
     }
     goldRate = goldRateDoc?.ratePerGram
   }
-  const useFixedPrice = !options.ignoreFixedPrice && variant.fixedPrice > 0
   if (!useFixedPrice && !(Number(goldRate) > 0)) {
     throw new AppError(409, 'GOLD_RATE_MISSING', `Current ${purity} gold rate is unavailable`)
   }
@@ -251,59 +254,13 @@ export async function getPriceBreakups(variantIds = []) {
 }
 
 /**
- * Fast listing prices: avoids per-variant live stone-rate queries.
- * Uses variant/product stored stone and making charges with latest gold/tax.
+ * Storefront listing totals — same live stone + gold path as cart/checkout quotes.
  */
 export async function getListingPriceTotals(variantIds = []) {
-  const ids = [...new Set(
-    (Array.isArray(variantIds) ? variantIds : [])
-      .map((id) => String(id || '').trim())
-      .filter((id) => /^[a-f\d]{24}$/i.test(id)),
-  )]
-  if (!ids.length) return []
-
-  const variants = await Variant.find({ _id: { $in: ids }, isActive: true }).lean()
-  const variantsById = new Map(variants.map((variant) => [String(variant._id), variant]))
-  const productIds = [...new Set(variants.map((variant) => String(variant.productId)).filter(Boolean))]
-  const [products, tax] = await Promise.all([
-    productIds.length ? Product.find({ _id: { $in: productIds }, status: 'active' }).lean() : Promise.resolve([]),
-    TaxSetting.findOne({ singleton: 'default' }).lean(),
-  ])
-  const productsById = new Map(products.map((product) => [String(product._id), product]))
-
-  const purities = [...new Set(variants.map((variant) => {
-    const product = productsById.get(String(variant.productId))
-    return normalizePurity(variant.purity || product?.purity || '22k')
-  }))]
-  const goldRates = await GoldRate.find({ isCurrent: true, purity: { $in: purities } }).sort({ effectiveAt: -1 }).lean()
-  const goldRateByPurity = new Map()
-  for (const rate of goldRates) {
-    if (!goldRateByPurity.has(rate.purity)) goldRateByPurity.set(rate.purity, rate)
-  }
-
-  return ids.map((variantId) => {
-    const variant = variantsById.get(variantId)
-    if (!variant) return { variant_id: variantId, total: null }
-    const product = productsById.get(String(variant.productId))
-    if (!product) return { variant_id: variantId, total: null }
-    try {
-      const purity = normalizePurity(variant.purity || product.purity || '22k')
-      const goldRate = Number(goldRateByPurity.get(purity)?.ratePerGram || 0)
-      const breakup = calculateBreakup({
-        variant: { ...variant, purity },
-        product: { ...product, purity },
-        tax,
-        goldRate,
-        qty: 1,
-      })
-      return { variant_id: variantId, total: breakup.total ?? null }
-    } catch {
-      return { variant_id: variantId, total: null }
-    }
-  })
+  return getPriceBreakups(variantIds)
 }
 
-export async function validateCoupon(codeInput, orderTotal, customerId) {
+export async function validateCoupon(codeInput, orderTotal, customerId, options = {}) {
   const code = String(codeInput || '').trim().toUpperCase()
   const coupon = await Coupon.findOne({
     code,
@@ -313,7 +270,13 @@ export async function validateCoupon(codeInput, orderTotal, customerId) {
   })
   if (!coupon) return { valid: false, reason: 'invalid_or_expired', discount_amount: 0 }
   const total = nonNegativeMoney(orderTotal)
-  if (total < coupon.minOrder) return { valid: false, reason: 'minimum_order_not_met', discount_amount: 0, min_order: coupon.minOrder }
+  // Customer-facing cart total (incl. VAT/shipping) for min-order + percent base when provided.
+  const customerTotal = options.minOrderAmount != null
+    ? nonNegativeMoney(options.minOrderAmount)
+    : total
+  if (customerTotal < coupon.minOrder) {
+    return { valid: false, reason: 'minimum_order_not_met', discount_amount: 0, min_order: coupon.minOrder }
+  }
   if (coupon.usageLimit != null && coupon.usedCount >= coupon.usageLimit) return { valid: false, reason: 'usage_limit_reached', discount_amount: 0 }
   if (customerId && await CouponRedemption.countDocuments({
     couponId: coupon.id,
@@ -322,7 +285,16 @@ export async function validateCoupon(codeInput, orderTotal, customerId) {
   }) >= coupon.perCustomerLimit) {
     return { valid: false, reason: 'customer_limit_reached', discount_amount: 0 }
   }
-  let discount = coupon.discountType === 'percent' ? total * coupon.discountValue / 100 : coupon.discountValue
+  const discountBase = options.discountBase != null
+    ? nonNegativeMoney(options.discountBase)
+    : customerTotal
+  // Discount is allocated on pre-VAT line bases — never exceed that pool.
+  const maxAllocatable = options.maxAllocatable != null
+    ? nonNegativeMoney(options.maxAllocatable)
+    : total
+  let discount = coupon.discountType === 'percent'
+    ? discountBase * coupon.discountValue / 100
+    : coupon.discountValue
   if (coupon.maxDiscount) discount = Math.min(discount, coupon.maxDiscount)
   return {
     valid: true,
@@ -331,7 +303,7 @@ export async function validateCoupon(codeInput, orderTotal, customerId) {
     discount_type: coupon.discountType,
     discount_value: coupon.discountValue,
     max_discount: coupon.maxDiscount ?? null,
-    discount_amount: Math.min(roundMoney(discount), total),
+    discount_amount: Math.min(roundMoney(discount), maxAllocatable, discountBase),
   }
 }
 
@@ -396,10 +368,15 @@ export async function quoteCustomerCart(customerId, { coupon_code: couponCode } 
     0,
   ))
 
+  const totalsBeforeCoupon = await calculateCartTotals(lines, 0)
   let discount = 0
   let couponPayload = null
   if (couponCode) {
-    const couponResult = await validateCoupon(couponCode, rawSubtotal, customerId)
+    const couponResult = await validateCoupon(couponCode, rawSubtotal, customerId, {
+      minOrderAmount: totalsBeforeCoupon.total,
+      discountBase: totalsBeforeCoupon.total,
+      maxAllocatable: rawSubtotal,
+    })
     if (!couponResult.valid) {
       throw new AppError(422, 'INVALID_COUPON', couponResult.reason || 'Coupon is not valid', couponResult)
     }
@@ -413,7 +390,7 @@ export async function quoteCustomerCart(customerId, { coupon_code: couponCode } 
     }
   }
 
-  const totals = await calculateCartTotals(lines, discount)
+  const totals = discount > 0 ? await calculateCartTotals(lines, discount) : totalsBeforeCoupon
   return {
     lines: lines.map((line) => ({
       cart_item_id: line.cart_item_id,

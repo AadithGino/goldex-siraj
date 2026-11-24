@@ -13,7 +13,7 @@ import { applyStockDelta } from './inventory.service.js'
 import { calculateCartTotals, getPriceBreakup, validateCoupon } from './pricing.service.js'
 import { allocatePaidAmounts } from './refund.service.js'
 import * as walletService from './wallet.service.js'
-import { createPaymobIntention, buildPaymobSpecialReference, getPaymobConfig, inquirePaymobTransaction, isPaymobPendingFlag, isPaymobSuccessFlag, paymobTransactionBelongsToOrder, resolveGoldexOrderId, verifyPaymobRedirectHmac } from './paymob.service.js'
+import { createPaymobIntention, buildPaymobSpecialReference, getPaymobConfig, inquirePaymobTransaction, isPaymobPendingFlag, isPaymobSuccessFlag, paymobTransactionBelongsToOrder, refundOrderViaPaymob, resolveGoldexOrderId, verifyPaymobRedirectHmac } from './paymob.service.js'
 import {
   buildTabbyReference,
   createTabbyCheckout,
@@ -311,7 +311,14 @@ export async function placeOrder(customerId, input) {
         if (!address) throw new AppError(422, 'ADDRESS_NOT_FOUND', 'Delivery address not found')
         const { lines, rateMap } = await buildLines(cart, session)
         const rawSubtotal = lines.reduce((sum, line) => sum + line.breakup.unit_subtotal_before_vat * line.qty, 0)
-        const couponResult = input.coupon_code ? await validateCoupon(input.coupon_code, rawSubtotal, customerId) : { valid: true, discount_amount: 0 }
+        const totalsBeforeCoupon = await calculateCartTotals(lines, 0)
+        const couponResult = input.coupon_code
+          ? await validateCoupon(input.coupon_code, rawSubtotal, customerId, {
+            minOrderAmount: totalsBeforeCoupon.total,
+            discountBase: totalsBeforeCoupon.total,
+            maxAllocatable: rawSubtotal,
+          })
+          : { valid: true, discount_amount: 0 }
         if (input.coupon_code && !couponResult.valid) throw new AppError(409, 'COUPON_INVALID', `Coupon cannot be applied: ${couponResult.reason}`)
         const totals = await calculateCartTotals(lines, couponResult.discount_amount)
         assertCheckoutLimits(settings, paymentMethod, totals.total)
@@ -356,10 +363,11 @@ export async function placeOrder(customerId, input) {
               ? 'card'
               : (input.payment_mode || input.paymentMode || 'bank_transfer'),
           paymentStatus: paymentMethod === 'cod' ? 'cod_pending' : 'pending',
-          pricingMode: paymentMethod === 'cod' ? 'cod_delivery' : 'manual_locked',
+          // All methods lock totals at placement (including COD handover).
+          pricingMode: 'manual_locked',
           ...orderTotalsPayload(totals),
           estimatedTotal: totals.total,
-          finalTotal: null,
+          finalTotal: totals.total,
           amountDue: roundMoney(totals.total - walletApplied),
           walletApplied,
           couponCode: couponResult.code || null,
@@ -442,13 +450,30 @@ export async function placeOrder(customerId, input) {
   throw lastError
 }
 
+function snapshotBreakupIsFixed(breakup = {}) {
+  const fixed = Number(breakup.fixed_price ?? breakup.price_override ?? 0)
+  return Number.isFinite(fixed) && fixed > 0
+}
+
 async function repriceOrder(order, session) {
   const lines = []
-  const rateMap = {}
+  const rateMap = { ...(order.goldRateSnapshot || {}) }
   for (const item of order.items) {
-    const breakup = await getPriceBreakup(item.variantId, 1, null, { session, ignoreFixedPrice: true })
-    rateMap[breakup.purity] = breakup.gold_rate
-    lines.push({ qty: item.qty, breakup })
+    // Prefer placement snapshot for fixed-price lines (and when live reprice is unavailable).
+    if (snapshotBreakupIsFixed(item.breakup) && item.breakup) {
+      const breakup = { ...item.breakup }
+      if (breakup.purity) rateMap[breakup.purity] = breakup.gold_rate ?? rateMap[breakup.purity]
+      lines.push({ qty: item.qty, breakup })
+      continue
+    }
+    try {
+      const breakup = await getPriceBreakup(item.variantId, 1, null, { session, ignoreFixedPrice: false })
+      rateMap[breakup.purity] = breakup.gold_rate
+      lines.push({ qty: item.qty, breakup })
+    } catch {
+      if (!item.breakup) throw new AppError(409, 'REPRICE_UNAVAILABLE', 'Unable to reprice order line and no placement snapshot exists')
+      lines.push({ qty: item.qty, breakup: { ...item.breakup } })
+    }
   }
   const rawSubtotal = lines.reduce((sum, line) => sum + line.breakup.unit_subtotal_before_vat * line.qty, 0)
 
@@ -497,24 +522,16 @@ async function collectPayment(orderId, staffId, mode, input, deliver) {
         throw new AppError(409, 'NOT_MANUAL_ORDER', 'Use COD handover for this order')
       }
 
-      // COD handover: live reprice. Manual payment: preserve placement snapshots.
-      let totals
-      let rateMap = order.goldRateSnapshot || {}
-      if (deliver) {
-        const repriced = await repriceOrder(order, session)
-        totals = repriced.totals
-        rateMap = repriced.rateMap
-      } else {
-        const lockedTotal = roundMoney(Number(order.finalTotal ?? order.total ?? 0))
-        totals = {
-          subtotal: order.subtotal,
-          discountAmount: order.discountAmount,
-          taxAmount: order.taxAmount,
-          shippingFee: order.shippingFee,
-          total: lockedTotal,
-          makingChargeTotal: order.makingChargeTotal,
-          taxBreakdown: order.taxBreakdown,
-        }
+      // COD handover and manual collect both use placement-locked totals (place === door).
+      const lockedTotal = roundMoney(Number(order.finalTotal ?? order.total ?? 0))
+      const totals = {
+        subtotal: order.subtotal,
+        discountAmount: order.discountAmount,
+        taxAmount: order.taxAmount,
+        shippingFee: order.shippingFee,
+        total: lockedTotal,
+        makingChargeTotal: order.makingChargeTotal,
+        taxBreakdown: order.taxBreakdown,
       }
 
       let walletApplied = order.walletApplied
@@ -549,16 +566,10 @@ async function collectPayment(orderId, staffId, mode, input, deliver) {
       }
       const collectedAmount = expectedAmount
       const invoiceNumber = order.invoiceNumber || await nextSequence(`invoice-${new Date().getUTCFullYear()}`, 'INV', session)
-      if (deliver) {
-        Object.assign(order, totals, {
-          total: totals.total,
-          finalTotal: totals.total,
-          goldRateSnapshot: rateMap,
-        })
-      } else if (order.finalTotal == null) {
-        order.finalTotal = roundMoney(Number(order.total || 0))
-      }
+      if (order.finalTotal == null) order.finalTotal = lockedTotal
       Object.assign(order, {
+        total: totals.total,
+        finalTotal: totals.total,
         amountDue: 0,
         walletApplied,
         paymentMode: mode,
@@ -598,7 +609,7 @@ async function collectPayment(orderId, staffId, mode, input, deliver) {
             pricing_mode: order.pricingMode,
             expected_amount: expectedAmount,
             collected_amount: collectedAmount,
-            goldRateSnapshot: deliver ? rateMap : undefined,
+            locked_at_placement: true,
           },
           processedAt: new Date(),
         }], { session })
@@ -707,126 +718,257 @@ export async function getAdminOrder(id) {
 export async function updateStatus(orderId, status, note, staffId) {
   const order = await Order.findById(orderId)
   if (!order) throw new AppError(404, 'ORDER_NOT_FOUND', 'Order not found')
+  if (status === 'returned' || status === 'partially_returned') {
+    throw new AppError(
+      409,
+      'USE_RETURN_FLOW',
+      'Return status is set automatically when return requests are completed',
+    )
+  }
   const transitions = {
     placed: ['confirmed', 'cancelled'],
     confirmed: ['processing', 'cancelled'],
     processing: ['shipped', 'cancelled'],
     shipped: ['delivered'],
     delivered: [],
+    // returned / partially_returned only via return.service completion
     partially_returned: [],
     cancelled: [],
     returned: [],
   }
   if (!transitions[order.status]?.includes(status)) throw new AppError(409, 'INVALID_STATUS_TRANSITION', `Cannot move order from ${order.status} to ${status}`)
   if (status === 'cancelled') return cancelOrder(orderId, staffId, note)
-  if (status === 'delivered' && order.paymentStatus !== 'paid') throw new AppError(409, 'PAYMENT_REQUIRED', 'Use COD handover to collect payment before delivery')
+
+  const unpaidOnline = order.paymentMethod === 'online' && order.paymentStatus === 'pending'
+  if (unpaidOnline && status !== 'cancelled') {
+    throw new AppError(409, 'PAYMENT_REQUIRED', 'Online orders must be paid before they can be advanced')
+  }
+  if (['shipped', 'delivered'].includes(status)
+    && order.paymentMethod === 'manual'
+    && order.paymentStatus === 'pending') {
+    throw new AppError(409, 'PAYMENT_REQUIRED', 'Mark bank transfer as paid before shipping')
+  }
+  if (status === 'delivered' && order.paymentStatus !== 'paid') {
+    throw new AppError(409, 'PAYMENT_REQUIRED', 'Use COD handover to collect payment before delivery')
+  }
   order.status = status
   if (status === 'delivered') order.deliveredAt = new Date()
   order.statusHistory.push({ status, note, changedBy: staffId })
   return order.save()
 }
 
-export async function cancelOrder(orderId, staffId, note, { session: externalSession } = {}) {
-  const run = async (session) => {
-    const order = await Order.findById(orderId).session(session)
-    if (!order || order.status === 'cancelled') return order
-    if (['delivered', 'returned'].includes(order.status)) throw new AppError(409, 'CANNOT_CANCEL', 'Delivered order cannot be cancelled')
-    for (const item of order.items) {
-      await applyStockDelta({
-        variantId: item.variantId,
-        delta: item.qty,
-        reason: 'order_cancelled',
+async function cancelOrderInSession(orderId, staffId, note, session, preExternalRefund = null) {
+  const order = await Order.findById(orderId).session(session)
+  if (!order || order.status === 'cancelled') return order
+  if (['delivered', 'returned', 'partially_returned'].includes(order.status)) {
+    throw new AppError(
+      409,
+      'CANNOT_CANCEL',
+      order.status === 'partially_returned'
+        ? 'Partially returned orders cannot be cancelled; complete remaining returns instead'
+        : 'Delivered order cannot be cancelled',
+    )
+  }
+  for (const item of order.items) {
+    // Never restore units already returned on the line.
+    const restockQty = Math.max(0, Number(item.qty || 0) - Number(item.returnedQty || 0))
+    if (!(restockQty > 0)) continue
+    await applyStockDelta({
+      variantId: item.variantId,
+      delta: restockQty,
+      reason: 'order_cancelled',
+      referenceType: 'order',
+      referenceId: order.id,
+      idempotencyKey: `order-cancelled:${order.id}:${item.variantId}`,
+      actorId: staffId,
+      session,
+    })
+  }
+  const wasPaid = order.paymentStatus === 'paid'
+  const paidTotal = roundMoney(Number(order.finalTotal ?? order.total ?? 0))
+  const walletReserved = roundMoney(Number(order.walletApplied || 0))
+  // Paid orders: refund full paid total (provider + wallet). Unpaid: release wallet reservation only.
+  const refundAmount = wasPaid ? paidTotal : walletReserved
+  if (refundAmount > 0) {
+    let externalAmount = 0
+    let externalProvider = null
+    let externalMethod = null
+
+    if (preExternalRefund) {
+      externalAmount = roundMoney(Number(preExternalRefund.amount || 0))
+      externalProvider = preExternalRefund.provider || null
+      externalMethod = preExternalRefund.method || null
+      if (preExternalRefund.tabbyRefundedTotal != null) {
+        order.tabbyRefundedTotal = preExternalRefund.tabbyRefundedTotal
+      }
+      if (preExternalRefund.paymobRefundedTotal != null) {
+        order.paymobRefundedTotal = preExternalRefund.paymobRefundedTotal
+      }
+    } else if (wasPaid && order.paymentProvider === 'tabby') {
+      const tabbyRefund = await refundOrderViaTabby(order, {
+        amount: refundAmount,
+        referenceId: `refund-cancel-${order.id}`,
+        reason: note || 'Order cancelled',
+        fullCancel: true,
+      })
+      externalAmount = tabbyRefund.tabbyAmount
+      externalProvider = 'tabby'
+      externalMethod = tabbyRefund.method || null
+    } else if (wasPaid && order.paymentProvider === 'paymob') {
+      const paymobRefund = await refundOrderViaPaymob(order, {
+        amount: refundAmount,
+        referenceId: `refund-cancel-${order.id}`,
+        reason: note || 'Order cancelled',
+        fullCancel: true,
+      })
+      externalAmount = paymobRefund.paymobAmount
+      externalProvider = 'paymob'
+      externalMethod = paymobRefund.method || null
+    }
+
+    const walletAmount = roundMoney(refundAmount - externalAmount)
+    if (externalAmount > 0 && externalProvider) {
+      await PaymentEvent.create([{
+        orderId: order.id,
+        provider: externalProvider,
+        eventType: 'order_cancel_refund',
+        transactionId: `${externalProvider}-cancel-refund:${order.id}`,
+        amount: externalAmount,
+        currency: 'AED',
+        verified: true,
+        payload: {
+          method: externalMethod,
+          paid_total: paidTotal,
+          tabby_payment_id: order.tabbyPaymentId || null,
+          paymob_transaction_id: order.paymentCollection?.transactionRef || null,
+          refunded_before_db_commit: Boolean(preExternalRefund),
+        },
+        processedAt: new Date(),
+      }], { session })
+    }
+    if (walletAmount > 0) {
+      await walletService.credit({
+        customerId: order.customerId,
+        amount: walletAmount,
+        type: 'refund',
         referenceType: 'order',
         referenceId: order.id,
-        idempotencyKey: `order-cancelled:${order.id}:${item.variantId}`,
-        actorId: staffId,
-        session,
-      })
+        idempotencyKey: `cancel-refund:${order.id}`,
+        note: wasPaid
+          ? (externalAmount > 0
+            ? 'Wallet share returned on cancellation (card refunded via provider)'
+            : 'Paid order cancellation refunded to wallet')
+          : 'Wallet returned on cancellation',
+        createdBy: staffId,
+      }, { session })
+      await PaymentEvent.create([{
+        orderId: order.id,
+        provider: 'wallet',
+        eventType: 'order_cancel_refund',
+        transactionId: `cancel-refund:${order.id}`,
+        amount: walletAmount,
+        currency: 'AED',
+        verified: true,
+        payload: {
+          was_paid: wasPaid,
+          payment_method: order.paymentMethod,
+          payment_mode: order.paymentMode,
+          wallet_applied: walletReserved,
+          paid_total: paidTotal,
+          external_refunded: externalAmount,
+          external_provider: externalProvider,
+        },
+        processedAt: new Date(),
+      }], { session })
     }
-    const wasPaid = order.paymentStatus === 'paid'
-    const paidTotal = roundMoney(Number(order.finalTotal ?? order.total ?? 0))
-    const walletReserved = roundMoney(Number(order.walletApplied || 0))
-    // Paid orders: credit the full paid total to wallet (covers wallet + external collection).
-    // Unpaid orders: release only the wallet reservation.
-    const refundAmount = wasPaid ? paidTotal : walletReserved
-    if (refundAmount > 0) {
-      let tabbyAmount = 0
-      let tabbyMethod = null
-      if (wasPaid && order.paymentProvider === 'tabby') {
-        const tabbyRefund = await refundOrderViaTabby(order, {
-          amount: refundAmount,
-          referenceId: `refund-cancel-${order.id}`,
-          reason: note || 'Order cancelled',
-          fullCancel: true,
-        })
-        tabbyAmount = tabbyRefund.tabbyAmount
-        tabbyMethod = tabbyRefund.method || null
-      }
-      const walletAmount = roundMoney(refundAmount - tabbyAmount)
-      if (tabbyAmount > 0) {
-        await PaymentEvent.create([{
-          orderId: order.id,
-          provider: 'tabby',
-          eventType: 'order_cancel_refund',
-          transactionId: `tabby-cancel-refund:${order.id}`,
-          amount: tabbyAmount,
-          currency: 'AED',
-          verified: true,
-          payload: { tabby_payment_id: order.tabbyPaymentId, method: tabbyMethod, paid_total: paidTotal },
-          processedAt: new Date(),
-        }], { session })
-      }
-      if (walletAmount > 0) {
-        await walletService.credit({
-          customerId: order.customerId,
-          amount: walletAmount,
-          type: 'refund',
-          referenceType: 'order',
-          referenceId: order.id,
-          idempotencyKey: `cancel-refund:${order.id}`,
-          note: wasPaid ? 'Paid order cancellation refunded to wallet' : 'Wallet returned on cancellation',
-          createdBy: staffId,
-        }, { session })
-        await PaymentEvent.create([{
-          orderId: order.id,
-          provider: 'wallet',
-          eventType: 'order_cancel_refund',
-          transactionId: `cancel-refund:${order.id}`,
-          amount: walletAmount,
-          currency: 'AED',
-          verified: true,
-          payload: {
-            was_paid: wasPaid,
-            payment_method: order.paymentMethod,
-            payment_mode: order.paymentMode,
-            wallet_applied: walletReserved,
-            paid_total: paidTotal,
-          },
-          processedAt: new Date(),
-        }], { session })
-      }
-      order.refundedTotal = roundMoney(Number(order.refundedTotal || 0) + refundAmount)
-    }
-    await rollbackCouponRedemption({
-      orderId: order.id,
-      reason: note || 'Order cancelled',
-      staffId,
-    }, { session })
-    order.status = 'cancelled'
-    if (wasPaid) {
-      if (!(refundAmount > 0)) throw new AppError(409, 'REFUND_REQUIRED', 'Paid cancellation requires a completed refund ledger entry')
-      order.paymentStatus = 'refunded'
-    }
-    order.statusHistory.push({ status: 'cancelled', note, changedBy: staffId })
-    await order.save({ session })
-    return order
+    order.refundedTotal = roundMoney(Number(order.refundedTotal || 0) + refundAmount)
+  }
+  await rollbackCouponRedemption({
+    orderId: order.id,
+    reason: note || 'Order cancelled',
+    staffId,
+  }, { session })
+  order.status = 'cancelled'
+  if (wasPaid) {
+    if (!(refundAmount > 0)) throw new AppError(409, 'REFUND_REQUIRED', 'Paid cancellation requires a completed refund ledger entry')
+    order.paymentStatus = 'refunded'
+  }
+  order.statusHistory.push({ status: 'cancelled', note, changedBy: staffId })
+  await order.save({ session })
+  return order
+}
+
+export async function cancelOrder(orderId, staffId, note, { session: externalSession } = {}) {
+  if (externalSession) {
+    return cancelOrderInSession(orderId, staffId, note, externalSession, null)
   }
 
-  if (externalSession) return run(externalSession)
+  const preview = await Order.findById(orderId)
+  if (!preview || preview.status === 'cancelled') return preview
+  if (['delivered', 'returned', 'partially_returned'].includes(preview.status)) {
+    throw new AppError(
+      409,
+      'CANNOT_CANCEL',
+      preview.status === 'partially_returned'
+        ? 'Partially returned orders cannot be cancelled; complete remaining returns instead'
+        : 'Delivered order cannot be cancelled',
+    )
+  }
+
+  const wasPaid = preview.paymentStatus === 'paid'
+  const paidTotal = roundMoney(Number(preview.finalTotal ?? preview.total ?? 0))
+  const walletReserved = roundMoney(Number(preview.walletApplied || 0))
+  const refundAmount = wasPaid ? paidTotal : walletReserved
+
+  // Provider refunds run BEFORE the DB transaction so a failed remote refund
+  // never leaves the order cancelled / stock restored without money returned.
+  let preExternalRefund = null
+  if (refundAmount > 0 && wasPaid && preview.paymentProvider === 'tabby') {
+    const tabbyRefund = await refundOrderViaTabby(preview, {
+      amount: refundAmount,
+      referenceId: `refund-cancel-${preview.id}`,
+      reason: note || 'Order cancelled',
+      fullCancel: true,
+    })
+    preExternalRefund = {
+      amount: tabbyRefund.tabbyAmount,
+      provider: 'tabby',
+      method: tabbyRefund.method || null,
+      tabbyRefundedTotal: preview.tabbyRefundedTotal,
+    }
+  } else if (refundAmount > 0 && wasPaid && preview.paymentProvider === 'paymob') {
+    const paymobRefund = await refundOrderViaPaymob(preview, {
+      amount: refundAmount,
+      referenceId: `refund-cancel-${preview.id}`,
+      reason: note || 'Order cancelled',
+      fullCancel: true,
+    })
+    preExternalRefund = {
+      amount: paymobRefund.paymobAmount,
+      provider: 'paymob',
+      method: paymobRefund.method || null,
+      paymobRefundedTotal: preview.paymobRefundedTotal,
+    }
+  }
 
   const session = await mongoose.startSession()
   try {
-    return await session.withTransaction(async () => run(session))
+    return await session.withTransaction(async () => (
+      cancelOrderInSession(orderId, staffId, note, session, preExternalRefund)
+    ))
+  } catch (error) {
+    if (preExternalRefund?.amount > 0) {
+      logger.error(
+        {
+          err: error,
+          orderId: String(orderId),
+          provider: preExternalRefund.provider,
+          amount: preExternalRefund.amount,
+        },
+        'Order cancel DB commit failed after provider refund succeeded — reconcile manually',
+      )
+    }
+    throw error
   } finally {
     await session.endSession()
   }
@@ -1001,7 +1143,7 @@ export async function changePendingPaymentMethod(customerId, orderId, input = {}
     order.paymentMethod = 'cod'
     order.paymentMode = 'cash'
     order.paymentStatus = 'cod_pending'
-    order.pricingMode = 'cod_delivery'
+    order.pricingMode = 'manual_locked'
     order.paymentProvider = null
     order.statusHistory.push({ status: order.status, note: 'Payment method changed to cash on delivery' })
     await order.save()

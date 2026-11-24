@@ -5,10 +5,8 @@ import { GoldBuybackRate, GoldRate, StoneRate } from '../models/rate.models.js'
 import { AppError } from '../utils/AppError.js'
 import { sanitizeCmsHtml } from '../utils/htmlSanitize.js'
 import {
-  decodeProductCursor,
-  encodeProductCursor,
-  PRODUCT_LIST_SORT,
-  productCursorFilter,
+  normalizeProductSortKey,
+  resolveProductListSort,
 } from '../utils/cursorPagination.js'
 import { paginationMeta, parsePagination } from '../utils/pagination.js'
 import { normalizePurity } from '../utils/purity.js'
@@ -19,6 +17,14 @@ import { getPaymobConfig } from './paymob.service.js'
 import { getTabbyConfig } from './tabby.service.js'
 import { applyStockDelta } from './inventory.service.js'
 import { getListingPriceTotals } from './pricing.service.js'
+import {
+  applyProductFieldFilters,
+  applyVariantDerivedProductFilters,
+  buildKeysetCursorState,
+  listProductsPriceAware,
+  needsPriceAwareList,
+  resolveCursorFilter,
+} from './productListQuery.js'
 import { stableStringify } from '../validators/numeric.js'
 
 function isDuplicateKey(error) {
@@ -129,6 +135,11 @@ export async function list(resource, query = {}, admin = false) {
     }
   }
 
+  if (resource === 'products') {
+    applyProductFieldFilters(filter, mapped)
+    await applyVariantDerivedProductFilters(filter, mapped, { admin })
+  }
+
   // New arrivals: products created within the last N days.
   const createdWithinDays = Number(mapped.createdWithinDays)
   const filterByRecency = resource === 'products'
@@ -140,58 +151,104 @@ export async function list(resource, query = {}, admin = false) {
   }
 
   const { page, limit, skip } = parsePagination(mapped, { defaultLimit: 50, maxLimit: 100 })
+  const sortKey = filterByRecency ? 'newest' : normalizeProductSortKey(mapped.sort)
   const useCursor = resource === 'products' && Boolean(mapped.cursor)
-  const sort = filterByRecency
-    ? { createdAt: -1, _id: -1 }
-    : PRODUCT_LIST_SORT
+  const priceAware = resource === 'products' && needsPriceAwareList(mapped, sortKey)
 
-  let cursorFilter = null
-  if (useCursor) {
-    cursorFilter = productCursorFilter(decodeProductCursor(mapped.cursor))
-    if (cursorFilter) filter.$and = [...(filter.$and || []), cursorFilter]
-  }
-
-  const findLimit = useCursor ? limit + 1 : limit
-  const findQuery = Model.find(filter).sort(sort).limit(findLimit)
-  if (!useCursor) findQuery.skip(skip)
-
-  const [rowsRaw, total] = await Promise.all([
-    findQuery.lean(),
-    Model.countDocuments(
-      // Count ignores cursor so meta.total stays the full filtered catalog size.
-      useCursor
-        ? (() => {
-            const countFilter = { ...filter }
-            if (cursorFilter && Array.isArray(countFilter.$and)) {
-              countFilter.$and = countFilter.$and.filter((clause) => clause !== cursorFilter)
-              if (!countFilter.$and.length) delete countFilter.$and
-            }
-            return countFilter
-          })()
-        : filter,
-    ),
-  ])
-
-  let rows = rowsRaw
+  let rows = []
+  let total = 0
   let nextCursor = null
   let hasMore = false
-  if (useCursor) {
-    hasMore = rowsRaw.length > limit
-    rows = hasMore ? rowsRaw.slice(0, limit) : rowsRaw
-    const last = rows[rows.length - 1]
-    nextCursor = hasMore ? encodeProductCursor(last) : null
-  } else if (resource === 'products' && rows.length) {
-    // First page can still start infinite scroll from the last item.
-    const last = rows[rows.length - 1]
-    const pageHasMore = skip + rows.length < total
-    nextCursor = pageHasMore ? encodeProductCursor(last) : null
-    hasMore = pageHasMore
+  let resultPage = page
+
+  if (priceAware) {
+    const priced = await listProductsPriceAware({
+      filter,
+      mapped,
+      admin,
+      page,
+      limit,
+      skip,
+      sortKey,
+    })
+    rows = priced.rows
+    total = priced.total
+    nextCursor = priced.nextCursor
+    hasMore = priced.hasMore
+    resultPage = priced.page || page
+  } else {
+    const sort = filterByRecency
+      ? { createdAt: -1, _id: -1 }
+      : resolveProductListSort(sortKey)
+
+    let cursorFilter = null
+    if (useCursor) {
+      cursorFilter = resolveCursorFilter(mapped, sortKey)
+      if (cursorFilter) filter.$and = [...(filter.$and || []), cursorFilter]
+    }
+
+    const findLimit = useCursor ? limit + 1 : limit
+    const findQuery = Model.find(filter).sort(sort).limit(findLimit)
+    if (!useCursor) findQuery.skip(skip)
+
+    const [rowsRaw, counted] = await Promise.all([
+      findQuery.lean(),
+      Model.countDocuments(
+        // Count ignores cursor so meta.total stays the full filtered catalog size.
+        useCursor
+          ? (() => {
+              const countFilter = { ...filter }
+              if (cursorFilter && Array.isArray(countFilter.$and)) {
+                countFilter.$and = countFilter.$and.filter((clause) => clause !== cursorFilter)
+                if (!countFilter.$and.length) delete countFilter.$and
+              }
+              return countFilter
+            })()
+          : filter,
+      ),
+    ])
+    total = counted
+
+    if (resource === 'products') {
+      const state = buildKeysetCursorState(mapped, sortKey, {
+        useCursor,
+        skip,
+        limit,
+        rowsRaw,
+        total,
+      })
+      rows = state.rows
+      nextCursor = state.nextCursor
+      hasMore = state.hasMore
+    } else {
+      rows = rowsRaw
+    }
   }
 
   const hydrate = String(mapped.hydrate || '') === '1' || mapped.hydrate === true || mapped.hydrate === 'true'
   let items = hydrate && resource === 'products'
     ? await hydrateProductsBatch(rows, admin)
     : rows
+
+  if (resource === 'brands' && !admin && items.length) {
+    const brandIds = items.map((row) => row._id || row.id).filter(Boolean)
+    const counts = brandIds.length
+      ? await Product.aggregate([
+        { $match: { status: 'active', brandId: { $in: brandIds } } },
+        { $group: { _id: '$brandId', count: { $sum: 1 } } },
+      ])
+      : []
+    const countByBrand = new Map(counts.map((row) => [String(row._id), row.count]))
+    items = items.map((row) => {
+      const plain = row.toObject ? row.toObject() : row
+      const id = String(plain._id || plain.id)
+      return {
+        ...plain,
+        productCount: countByBrand.get(id) || 0,
+      }
+    })
+  }
+
   if (resource === 'cms-pages') {
     items = items.map((row) => {
       const plain = row.toObject ? row.toObject() : row
@@ -207,7 +264,7 @@ export async function list(resource, query = {}, admin = false) {
   }
   return {
     items,
-    ...paginationMeta(page, limit, total, {
+    ...paginationMeta(resultPage, limit, total, {
       next_cursor: nextCursor,
       has_more: hasMore,
     }),
@@ -227,12 +284,22 @@ async function hydrateProductsBatch(rows, admin = false) {
   const variantIds = variants.map((row) => String(row._id || row.id))
   const priceRows = variantIds.length ? await getListingPriceTotals(variantIds) : []
 
-  const [images, certificates, categories, brands] = await Promise.all([
+  const [images, certificates, categories, brands, stones] = await Promise.all([
     ProductImage.find({ productId: { $in: productIds } }).sort({ displayOrder: 1, createdAt: 1 }).lean(),
     Certificate.find({ productId: { $in: productIds } }).lean(),
     categoryIds.length ? Category.find({ _id: { $in: categoryIds } }).lean() : Promise.resolve([]),
     brandIds.length ? Brand.find({ _id: { $in: brandIds } }).lean() : Promise.resolve([]),
+    variantIds.length
+      ? ProductStone.find({ variantId: { $in: variantIds } }).sort({ displayOrder: 1 }).lean()
+      : Promise.resolve([]),
   ])
+
+  const stonesByVariant = new Map()
+  for (const stone of stones) {
+    const key = String(stone.variantId)
+    if (!stonesByVariant.has(key)) stonesByVariant.set(key, [])
+    stonesByVariant.get(key).push(stone)
+  }
 
   const variantsByProduct = new Map()
   for (const variant of variants) {
@@ -261,11 +328,17 @@ async function hydrateProductsBatch(rows, admin = false) {
     const plain = row
     const productId = String(plain._id || plain.id)
     const productVariants = variantsByProduct.get(productId) || []
-    const variantsWithStones = productVariants.map((variant) => ({
-      ...variant,
-      product_stones: [],
-      livePriceTotal: priceByVariantId.get(String(variant._id || variant.id)) ?? null,
-    }))
+    const variantsWithStones = productVariants.map((variant) => {
+      const variantId = String(variant._id || variant.id)
+      const productStones = stonesByVariant.get(variantId) || []
+      const primaryStone = productStones.find((stone) => stone?.stoneType && stone.stoneType !== 'none')
+      return {
+        ...variant,
+        product_stones: productStones,
+        stoneType: variant.stoneType || primaryStone?.stoneType || 'none',
+        livePriceTotal: priceByVariantId.get(variantId) ?? null,
+      }
+    })
     const imageRows = imagesByProduct.get(productId) || []
     const certRows = certsByProduct.get(productId) || []
     const category = plain.categoryId ? categoryById.get(String(plain.categoryId)) || null : null

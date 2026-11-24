@@ -102,8 +102,10 @@ export function calculateBreakup({
 
   const makingChargeType = product.makingChargeType || 'percent'
   const makingChargeValue = Number(product.makingChargeValue || 0)
+  // Flat product: variant AED override if set, else product flat.
+  // Percent product: variant makingCharge > 0 is a legacy flat AED override; else product %.
   const makingCharge = makingChargeType === 'flat'
-    ? makingChargeValue
+    ? (Number(variant.makingCharge) > 0 ? Number(variant.makingCharge) : makingChargeValue)
     : Number(variant.makingCharge) > 0
       ? Number(variant.makingCharge)
       : roundMoney(goldValue * makingChargeValue / 100)

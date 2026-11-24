@@ -81,6 +81,7 @@ const schema = z.object({
   PAYMENT_RECONCILIATION_ENABLED: envBoolean.default(true),
   PAYMENT_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(10).max(900).default(45),
   PAYMENT_RECONCILIATION_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(25),
+  PAYMENT_PENDING_CANCEL_HOURS: z.coerce.number().int().min(1).max(168).default(3),
 })
 
 const parsed = schema.safeParse(process.env)
@@ -217,6 +218,7 @@ export const config = Object.freeze({
     enabled: env.PAYMENT_RECONCILIATION_ENABLED,
     intervalSeconds: env.PAYMENT_RECONCILIATION_INTERVAL_SECONDS,
     batchSize: env.PAYMENT_RECONCILIATION_BATCH_SIZE,
+    pendingCancelHours: env.PAYMENT_PENDING_CANCEL_HOURS,
   },
 })
 
